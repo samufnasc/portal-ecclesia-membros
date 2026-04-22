@@ -1,0 +1,53 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@theme {
+  --font-sans: "Inter", -apple-system, sans-serif;
+  --font-display: "Inter", -apple-system, sans-serif;
+  
+  --color-brand-primary: #0f172a;
+  --color-brand-secondary: #38bdf8;
+  --color-card-bg: #1e293b;
+  --color-accent: #818cf8;
+}
+
+body {
+  @apply bg-[#0f172a] text-[#f8fafc] font-sans antialiased;
+}
+
+h1, h2, h3, h4 {
+  @apply font-semibold tracking-tight text-white;
+}
+
+.glass {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.card-sleek {
+  @apply bg-[#1e293b] border border-white/5 rounded-xl p-4 transition-all hover:bg-[#242f45] hover:border-white/10;
+}
+
+.sidebar-sleek {
+  @apply bg-[#0f172a] border-r border-white/5;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded-full hover:bg-slate-600 transition-colors;
+}
+
+.chart-bar-container {
+  @apply h-3 bg-slate-800 rounded-full overflow-hidden relative;
+}
+
+.chart-bar-fill {
+  @apply h-full rounded-full bg-gradient-to-r from-sky-400 to-indigo-400 transition-all duration-500;
+}
