@@ -1,53 +1,262 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie
 } from 'recharts';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { 
   Users, Calendar, Briefcase, Search, Filter, LogOut, ChevronRight, Cake, 
   UserCircle, Star, Grid, Church, Plus, Printer, X, Check, Edit2, Save,
-  Sun, Moon, LayoutDashboard, Menu, Flame
+  Sun, Moon, LayoutDashboard, Menu, Flame, Camera, ChevronDown, ChevronUp, Trash2
 } from 'lucide-react';
 import { membersData, MONTHS, DEPARTMENTS } from '../data/members';
 import { Member } from '../types';
 import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 
 interface DashboardProps {
   onLogout: () => void;
 }
 
 export default function Dashboard({ onLogout }: DashboardProps) {
-  const [allMembers, setAllMembers] = useState<Member[]>(membersData);
+  const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDept, setSelectedDept] = useState<string | null>(null);
+  const [selectedDepts, setSelectedDepts] = useState<string[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [leadershipFilter, setLeadershipFilter] = useState<'all' | 'leadership' | 'congregation'>('all');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [logoBase64, setLogoBase64] = useState<string | null>(null);
 
   // Modals state
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  
+  // Collapsible sections state (mobile) - Start collapsed on mobile
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    depts: window.innerWidth >= 1024,
+    composition: false,
+    anniversaries: false,
+    upcoming: window.innerWidth >= 1024
+  });
 
-  // Filtered members list
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Profile Logo Change
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoBase64(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Supabase Integration
+  const fetchMembers = async () => {
+    setIsLoading(true);
+    
+    // Check if Supabase is configured
+    if (!supabase) {
+      setAllMembers(membersData);
+      setIsOffline(true);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('members')
+        .select('*')
+        .order('name');
+      
+      if (error) {
+        // Handle case where table doesn't exist yet (PGRST205)
+        if (error.code === 'PGRST205') {
+          console.warn('Tabela "members" não encontrada no Supabase. Usando dados locais.');
+          setAllMembers(membersData);
+          setIsOffline(true);
+          return;
+        }
+        throw error;
+      };
+      
+      if (data && data.length > 0) {
+        const mappedData = data.map(m => ({
+          ...m,
+          isLeadership: m.is_leadership,
+          membershipType: m.membership_type
+        }));
+        setAllMembers(mappedData);
+        setIsOffline(false);
+      } else {
+        setAllMembers(membersData);
+        setIsOffline(false);
+      }
+    } catch (err) {
+      console.error('Error fetching members:', err);
+      setAllMembers(membersData);
+      setIsOffline(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMembers();
+  }, []);
+
+  const handleSaveMember = async (member: Member) => {
+    if (isOffline || !supabase) {
+      if (member.id) {
+        setAllMembers(prev => prev.map(m => m.id === member.id ? member : m));
+      } else {
+        setAllMembers(prev => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
+      }
+      setIsMemberModalOpen(false);
+      setEditingMember(null);
+      return;
+    }
+
+    try {
+      const isEditing = !!member.id;
+      const dbMember = {
+        name: member.name,
+        birthday: member.birthday,
+        month: member.month,
+        day: member.day,
+        departments: member.departments,
+        is_leadership: member.isLeadership,
+        membership_type: member.membershipType
+      };
+
+      if (isEditing) {
+        const { error } = await supabase
+          .from('members')
+          .update(dbMember)
+          .eq('id', member.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('members')
+          .insert([dbMember]);
+        if (error) throw error;
+      }
+      
+      await fetchMembers();
+      setIsMemberModalOpen(false);
+      setEditingMember(null);
+    } catch (err) {
+      console.error('Error saving member:', err);
+      alert('Erro ao salvar no banco de dados. Salvando localmente para esta sessão.');
+      // Fallback update
+      if (member.id) {
+        setAllMembers(prev => prev.map(m => m.id === member.id ? member : m));
+      } else {
+        setAllMembers(prev => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
+      }
+      setIsMemberModalOpen(false);
+    }
+  };
+
+  const handleDeleteMember = async (id: string) => {
+    if (!confirm('Tem certeza que deseja excluir este membro?')) return;
+    
+    if (isOffline || !supabase) {
+      setAllMembers(prev => prev.filter(m => m.id !== id));
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('members')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      await fetchMembers();
+    } catch (err) {
+      console.error('Error deleting member:', err);
+      setAllMembers(prev => prev.filter(m => m.id !== id));
+    }
+  };
+
+  const handleSyncData = async () => {
+    if (!supabase || isOffline) return;
+    if (!confirm('Deseja enviar os dados iniciais locais para o seu banco de dados Supabase?')) return;
+    
+    setIsSyncing(true);
+    try {
+      const dbMembers = membersData.map(m => ({
+        name: m.name,
+        birthday: m.birthday,
+        month: m.month,
+        day: m.day,
+        departments: m.departments,
+        is_leadership: m.isLeadership,
+        membership_type: m.membershipType
+      }));
+
+      const { error } = await supabase
+        .from('members')
+        .insert(dbMembers);
+      
+      if (error) throw error;
+      
+      alert('Dados sincronizados com sucesso!');
+      await fetchMembers();
+    } catch (err) {
+      console.error('Sync error:', err);
+      alert('Erro ao sincronizar dados. Verifique a tabela no Supabase.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Filtered members list - SORTED BY BIRTHDAY
   const filteredMembers = useMemo(() => {
-    return allMembers.filter(m => {
+    const filtered = allMembers.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesDept = !selectedDept || m.departments.includes(selectedDept);
+      const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
       const matchesMonth = !selectedMonth || m.month === selectedMonth;
       const matchesLeadership = leadershipFilter === 'all' || 
                                 (leadershipFilter === 'leadership' ? m.isLeadership : !m.isLeadership);
 
       return matchesSearch && matchesDept && matchesMonth && matchesLeadership;
     });
-  }, [allMembers, searchTerm, selectedDept, selectedMonth, leadershipFilter]);
 
-  // Data processing for charts
+    // Sort primarily by birthday (month first, then day)
+    return filtered.sort((a, b) => {
+      const monthIndexA = MONTHS.indexOf(a.month);
+      const monthIndexB = MONTHS.indexOf(b.month);
+      if (monthIndexA !== monthIndexB) return monthIndexA - monthIndexB;
+      return a.day - b.day;
+    });
+  }, [allMembers, searchTerm, selectedDepts, selectedMonth, leadershipFilter]);
+
+  // Data processing for charts - CROSS-FILTERING (Charts shouldn't filter themselves)
   const deptData = useMemo(() => {
     const counts: Record<string, number> = {};
-    filteredMembers.forEach(m => {
+    // When computing chart data, we ignore its own filter to keep UI stable (Power BI behavior)
+    const dataForDepts = allMembers.filter(m => {
+      const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesMonth = !selectedMonth || m.month === selectedMonth;
+      const matchesLeadership = leadershipFilter === 'all' || 
+                                (leadershipFilter === 'leadership' ? m.isLeadership : !m.isLeadership);
+      return matchesSearch && matchesMonth && matchesLeadership;
+    });
+
+    dataForDepts.forEach(m => {
       m.departments.forEach(dept => {
         counts[dept] = (counts[dept] || 0) + 1;
       });
@@ -56,40 +265,69 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       name: dept,
       value: counts[dept] || 0
     })).filter(d => d.value > 0);
-  }, [filteredMembers]);
+  }, [allMembers, searchTerm, selectedMonth, leadershipFilter]);
 
   const monthData = useMemo(() => {
     const counts: Record<string, number> = {};
-    filteredMembers.forEach(m => {
+    const dataForMonths = allMembers.filter(m => {
+      const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
+      const matchesLeadership = leadershipFilter === 'all' || 
+                                (leadershipFilter === 'leadership' ? m.isLeadership : !m.isLeadership);
+      return matchesSearch && matchesDept && matchesLeadership;
+    });
+
+    dataForMonths.forEach(m => {
       counts[m.month] = (counts[m.month] || 0) + 1;
     });
     return MONTHS.map(month => ({
       name: month,
       value: counts[month] || 0
     }));
-  }, [filteredMembers]);
+  }, [allMembers, searchTerm, selectedDepts, leadershipFilter]);
 
   const leadershipStats = useMemo(() => {
-    const leaders = filteredMembers.filter(m => m.isLeadership).length;
-    const congregation = filteredMembers.length - leaders;
+    const dataForLeadership = allMembers.filter(m => {
+      const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
+      const matchesMonth = !selectedMonth || m.month === selectedMonth;
+      return matchesSearch && matchesDept && matchesMonth;
+    });
+
+    const leaders = dataForLeadership.filter(m => m.isLeadership).length;
+    const congregation = dataForLeadership.length - leaders;
     return [
       { name: 'Liderança', value: leaders },
       { name: 'Congregação', value: congregation }
     ].filter(s => s.value > 0);
-  }, [filteredMembers]);
+  }, [allMembers, searchTerm, selectedDepts, selectedMonth]);
 
-  // Next birthdays (today or soon)
+  // Next birthdays logic (Current month remaining, or Next month)
   const upcomingBirthdays = useMemo(() => {
-    return [...allMembers].sort((a, b) => {
-      const monthA = MONTHS.indexOf(a.month);
-      const monthB = MONTHS.indexOf(b.month);
-      if (monthA !== monthB) return monthA - monthB;
-      return a.day - b.day;
-    }).slice(0, 5);
+    const today = new Date();
+    const currentMonthIndex = today.getMonth();
+    const currentMonthName = MONTHS[currentMonthIndex];
+    const currentDay = today.getDate();
+
+    // Check current month first
+    const currentMonthRemaining = [...allMembers]
+      .filter(m => m.month === currentMonthName && m.day >= currentDay)
+      .sort((a, b) => a.day - b.day);
+
+    if (currentMonthRemaining.length === 0) {
+      // If none in current month, show next month
+      const nextMonthIndex = (currentMonthIndex + 1) % 12;
+      const nextMonthName = MONTHS[nextMonthIndex];
+      return [...allMembers]
+        .filter(m => m.month === nextMonthName)
+        .sort((a, b) => a.day - b.day);
+    }
+
+    return currentMonthRemaining;
   }, [allMembers]);
 
   const resetFilters = () => {
-    setSelectedDept(null);
+    setSelectedDepts([]);
     setSelectedMonth(null);
     setLeadershipFilter('all');
     setSearchTerm('');
@@ -119,32 +357,44 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         isDarkMode ? "bg-[#0f172a] border-white/5" : "bg-white border-slate-200",
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="space-y-8">
-          <div className="flex flex-col items-center gap-3 px-2 text-center pb-4 border-b border-white/5">
-            <div className="relative">
+        <div className="space-y-6 md:space-y-8 overflow-y-auto custom-scrollbar pr-1">
+          <div className="flex flex-col items-center gap-3 px-2 text-center pb-6 border-b border-white/5">
+            <div className="relative group/logo">
               <div className={cn(
                 "w-20 h-20 rounded-full flex items-center justify-center p-0.5 transition-all relative overflow-hidden",
                 isDarkMode 
-                  ? "bg-gradient-to-tr from-sky-600 to-sky-400 shadow-lg shadow-sky-500/20" 
-                  : "bg-gradient-to-tr from-sky-500 to-sky-300 shadow-lg shadow-sky-500/10"
+                  ? "bg-gradient-to-tr from-sky-600 to-sky-400 shadow-xl shadow-sky-500/20" 
+                  : "bg-gradient-to-tr from-sky-500 to-sky-300 shadow-xl shadow-sky-500/10"
               )}>
                 <div className={cn(
-                  "w-full h-full rounded-full flex flex-col items-center justify-center text-white border-2 border-white/20",
-                  isDarkMode ? "bg-[#0f172a]/80" : "bg-white/80"
+                  "w-full h-full rounded-full flex flex-col items-center justify-center text-white border-2 border-white/20 relative",
+                  isDarkMode ? "bg-[#0f172a]/90" : "bg-white/90"
                 )}>
-                  <Church className={cn("w-8 h-8 mb-0.5", isDarkMode ? "text-sky-400" : "text-sky-600")} />
-                  <span className={cn("text-[6px] font-black uppercase leading-none text-center px-2", isDarkMode ? "text-sky-400" : "text-sky-600")}>
-                    MENSAGEIROS DA FÉ
-                  </span>
+                  {logoBase64 ? (
+                    <img src={logoBase64} alt="Church Logo" className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    <>
+                      <Church className={cn("w-8 h-8 mb-0.5", isDarkMode ? "text-sky-400" : "text-sky-600")} />
+                      <span className={cn("text-[6px] font-black uppercase leading-none text-center px-2", isDarkMode ? "text-sky-400" : "text-sky-600")}>
+                        MENSAGEIROS DA FÉ
+                      </span>
+                    </>
+                  )}
+                  
+                  <label className="absolute inset-0 bg-black/50 opacity-0 group-hover/logo:opacity-100 transition-all duration-300 flex flex-col items-center justify-center cursor-pointer rounded-full backdrop-blur-[2px]">
+                    <Camera className="w-5 h-5 text-white mb-1" />
+                    <span className="text-[6px] font-black text-white uppercase">Trocar Logo</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                  </label>
                 </div>
               </div>
-              <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-amber-500 rounded-full flex items-center justify-center shadow-lg border-2 border-[#0f172a]">
+              <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-amber-500 rounded-full flex items-center justify-center shadow-lg border-2 border-[#0f172a] animate-pulse">
                 <Flame className="w-3.5 h-3.5 text-white fill-white" />
               </div>
             </div>
-            <div className="space-y-0.5">
-              <span className={cn("text-[10px] font-black tracking-[0.2em] uppercase leading-none", isDarkMode ? "text-white" : "text-slate-800")}>Portal Ecclesia</span>
-              <p className={cn("text-[8px] font-bold uppercase tracking-tighter", isDarkMode ? "text-sky-500" : "text-sky-600")}>Congr. Mensageiros da Fé</p>
+            <div className="space-y-1">
+              <h2 className={cn("text-xs font-black tracking-[0.25em] uppercase leading-none", isDarkMode ? "text-white" : "text-slate-800")}>PORTAL ECCLESIA</h2>
+              <p className={cn("text-[8px] font-black uppercase tracking-tighter", isDarkMode ? "text-sky-500" : "text-sky-600")}>Congr. Mensageiros da Fé</p>
             </div>
           </div>
 
@@ -152,7 +402,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             <NavItem 
               icon={<LayoutDashboard className="w-4 h-4" />} 
               label="Dashboard" 
-              active={!selectedDept && !selectedMonth} 
+              active={selectedDepts.length === 0 && !selectedMonth} 
               darkMode={isDarkMode}
               onClick={() => {
                 resetFilters();
@@ -173,16 +423,19 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <p className={cn("text-[10px] font-bold uppercase tracking-[0.2em] mb-4 ml-1", isDarkMode ? "text-slate-500" : "text-slate-400")}>Filtros Essenciais</p>
               
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className={cn("text-[10px] font-bold ml-1 uppercase tracking-wider", isDarkMode ? "text-slate-500" : "text-slate-400")}>Mês do Aniversário</label>
+            <div className="space-y-1.5">
+                  <label className={cn("text-[10px] font-bold ml-1 uppercase tracking-widest", isDarkMode ? "text-slate-400" : "text-slate-500")}>Mês do Aniversário</label>
                   <select 
                     value={selectedMonth || ''} 
-                    onChange={(e) => setSelectedMonth(e.target.value || null)}
+                    onChange={(e) => {
+                      setSelectedMonth(e.target.value || null);
+                      if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                    }}
                     className={cn(
-                      "w-full border rounded-lg py-2 px-3 text-xs focus:outline-none focus:ring-2 transition-all appearance-none",
+                      "w-full border rounded-xl py-2.5 px-4 text-xs font-bold focus:outline-none focus:ring-2 transition-all appearance-none cursor-pointer uppercase tracking-tighter",
                       isDarkMode 
-                        ? "bg-slate-800/50 border-white/5 text-slate-300 focus:ring-sky-500/20" 
-                        : "bg-slate-50 border-slate-200 text-slate-700 focus:ring-sky-500/10"
+                        ? "bg-slate-800/80 border-white/5 text-sky-400 focus:ring-sky-500/20" 
+                        : "bg-slate-50 border-slate-200 text-sky-700 focus:ring-sky-500/10"
                     )}
                   >
                     <option value="">Todos os Meses</option>
@@ -192,16 +445,20 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   </select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className={cn("text-[10px] font-bold ml-1 uppercase tracking-wider", isDarkMode ? "text-slate-500" : "text-slate-400")}>Departamento</label>
+                <div className="space-y-1.5 pt-2">
+                  <label className={cn("text-[10px] font-bold ml-1 uppercase tracking-widest", isDarkMode ? "text-slate-400" : "text-slate-500")}>Departamento</label>
                   <select 
-                    value={selectedDept || ''} 
-                    onChange={(e) => setSelectedDept(e.target.value || null)}
+                    value={selectedDepts[0] || ''} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedDepts(val ? [val] : []);
+                      if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                    }}
                     className={cn(
-                      "w-full border rounded-lg py-2 px-3 text-xs focus:outline-none focus:ring-2 transition-all appearance-none",
+                      "w-full border rounded-xl py-2.5 px-4 text-xs font-bold focus:outline-none focus:ring-2 transition-all appearance-none cursor-pointer uppercase tracking-tighter",
                       isDarkMode 
-                        ? "bg-slate-800/50 border-white/5 text-slate-300 focus:ring-sky-500/20" 
-                        : "bg-slate-50 border-slate-200 text-slate-700 focus:ring-sky-500/10"
+                        ? "bg-slate-800/80 border-white/5 text-sky-400 focus:ring-sky-500/20" 
+                        : "bg-slate-50 border-slate-200 text-sky-700 focus:ring-sky-500/10"
                     )}
                   >
                     <option value="">Todos os Departamentos</option>
@@ -293,28 +550,32 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className={cn(
-          "h-auto py-3 md:h-16 shrink-0 border-b px-4 md:px-8 flex flex-wrap md:flex-nowrap items-center justify-between sticky top-0 z-10 transition-colors duration-500",
-          isDarkMode ? "bg-[#0f172a] border-white/5" : "bg-white border-slate-200"
+          "h-auto py-3 md:h-16 shrink-0 border-b px-4 md:px-8 flex flex-wrap md:flex-nowrap items-center justify-between sticky top-0 z-10 transition-all duration-500",
+          isDarkMode ? "bg-[#0f172a]/95 border-white/5" : "bg-white/95 border-slate-200",
+          "backdrop-blur-md"
         )}>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             <button 
               onClick={() => setIsSidebarOpen(true)}
               className={cn(
-                "p-2.5 rounded-xl lg:hidden border transition-all active:scale-95", 
+                "p-2 rounded-xl lg:hidden border transition-all active:scale-95 flex items-center justify-center", 
                 isDarkMode 
-                  ? "bg-slate-800/50 border-white/5 text-sky-400 hover:bg-slate-800" 
-                  : "bg-slate-50 border-slate-200 text-sky-600 hover:bg-slate-100"
+                  ? "bg-slate-800/50 border-white/5 text-sky-400" 
+                  : "bg-slate-50 border-slate-200 text-sky-600"
               )}
             >
-              <Menu className="w-6 h-6" />
+              <Menu className="w-5 h-5" />
             </button>
-            <div className="flex flex-col md:flex-row md:items-center md:gap-2">
-              <h2 className={cn("text-base md:text-lg font-bold tracking-tight", isDarkMode ? "text-white" : "text-slate-800")}>
-                Portal Ecclesia
-              </h2>
-              <span className={cn("text-[9px] font-bold uppercase tracking-widest hidden sm:inline-block px-2 py-1 rounded border leading-none", isDarkMode ? "bg-sky-500/10 text-sky-400 border-sky-500/20" : "bg-sky-50 text-sky-600 border-sky-200")}>
-               Mensageiros da Fé
-              </span>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h2 className={cn("text-sm md:text-lg font-black tracking-tight whitespace-nowrap", isDarkMode ? "text-white" : "text-slate-800")}>
+                  Portal Ecclesia
+                </h2>
+                <div className={cn("hidden sm:block w-1 h-1 rounded-full", isDarkMode ? "bg-slate-600" : "bg-slate-300")} />
+              </div>
+              <p className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-widest truncate", isDarkMode ? "text-sky-500" : "text-sky-600")}>
+                Mensageiros da Fé
+              </p>
             </div>
           </div>
           
@@ -337,6 +598,27 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           </div>
           
           <div className="flex items-center gap-2 ml-auto order-2 md:order-3">
+            {isOffline ? (
+              <div className={cn(
+                "hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest mr-2",
+                isDarkMode ? "bg-amber-500/10 border-amber-500/20 text-amber-500" : "bg-amber-50 border-amber-200 text-amber-600"
+              )}>
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                Modo Local
+              </div>
+            ) : allMembers.length === membersData.length && allMembers[0]?.name === membersData[0]?.name && (
+              <button 
+                onClick={handleSyncData}
+                disabled={isSyncing}
+                className={cn(
+                  "hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest mr-2 animate-bounce hover:animate-none transition-all",
+                  isDarkMode ? "bg-sky-500/10 border-sky-500/20 text-sky-400" : "bg-sky-50 border-sky-200 text-sky-600"
+                )}
+              >
+                <Flame className={cn("w-3 h-3", isSyncing && "animate-spin")} />
+                {isSyncing ? 'Sincronizando...' : 'Sincronizar Cloud'}
+              </button>
+            )}
             <button 
               onClick={() => setIsReportModalOpen(true)}
               className={cn(
@@ -368,10 +650,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           {/* Stats Section */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
             {[
-              { label: 'Membros Ativos', value: filteredMembers.length, sub: 'Filtro atual', color: 'sky' },
-              { label: 'Liderança', value: filteredMembers.filter(m => m.isLeadership).length, sub: 'Corpo diretivo', color: 'indigo' },
-              { label: 'Congregação', value: filteredMembers.filter(m => !m.isLeadership).length, sub: 'Membros gerais', color: 'teal' },
-              { label: 'Aniversariantes', value: filteredMembers.filter(m => m.month === MONTHS[new Date().getMonth()]).length, sub: 'Este mês', color: 'sky' }
+              { label: 'Membros Ativos', value: filteredMembers.length, sub: 'Filtro atual', color: 'sky', action: () => resetFilters() },
+              { label: 'Liderança', value: filteredMembers.filter(m => m.isLeadership).length, sub: 'Corpo diretivo', color: 'indigo', action: () => setLeadershipFilter(prev => prev === 'leadership' ? 'all' : 'leadership') },
+              { label: 'Congregação', value: filteredMembers.filter(m => !m.isLeadership).length, sub: 'Membros gerais', color: 'teal', action: () => setLeadershipFilter(prev => prev === 'congregation' ? 'all' : 'congregation') },
+              { label: 'Aniversariantes', value: filteredMembers.filter(m => m.month === MONTHS[new Date().getMonth()]).length, sub: 'Este mês', color: 'sky', action: () => {
+                const curMonth = MONTHS[new Date().getMonth()];
+                setSelectedMonth(prev => prev === curMonth ? null : curMonth);
+              }}
             ].map((stat, i) => (
               <StatCard 
                 key={i}
@@ -380,112 +665,284 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 subtext={stat.sub}
                 color={stat.color as any}
                 darkMode={isDarkMode}
+                onClick={stat.action}
               />
             ))}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Chart: Departments */}
-            <div className={cn("card-sleek !shadow-none min-h-[350px]", !isDarkMode && "bg-white border-slate-200")}>
-              <h3 className={cn("text-xs font-bold uppercase tracking-widest mb-6 border-b pb-2", isDarkMode ? "text-slate-500 border-white/5" : "text-slate-400 border-slate-100")}>Departamentos</h3>
-              <div className="h-[250px] w-full min-h-[250px]">
-                <ResponsiveContainer width="100%" height="100%" minHeight={250}>
-                  <BarChart data={deptData} layout="vertical" margin={{ left: 0, right: 20 }}>
-                    <XAxis type="number" hide />
-                    <YAxis 
-                      dataKey="name" 
-                      type="category" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fill: isDarkMode ? '#64748b' : '#94a3b8', fontSize: 10 }}
-                      width={100}
-                    />
-                    <Tooltip 
-                      cursor={{ fill: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}
-                      contentStyle={{ 
-                        backgroundColor: isDarkMode ? '#0f172a' : '#ffffff', 
-                        border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)', 
-                        borderRadius: '8px', 
-                        fontSize: '12px',
-                        color: isDarkMode ? '#fff' : '#000'
-                      }}
-                    />
-                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                      {deptData.map((_entry, index) => (
-                        <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#0ea5e9' : '#6366f1'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+            <div className={cn("card-sleek !shadow-none min-h-fit transition-all duration-300", !isDarkMode && "bg-white border-slate-200")}>
+              <button 
+                onClick={() => toggleSection('depts')}
+                className={cn("w-full flex items-center justify-between text-xs font-bold uppercase tracking-widest mb-4 md:mb-6 border-b pb-2", isDarkMode ? "text-white border-white/5" : "text-slate-800 border-slate-100")}
+              >
+                <span>Departamentos</span>
+                <div className="lg:hidden">
+                  {expandedSections.depts ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+              </button>
+              
+              <AnimatePresence>
+                {(expandedSections.depts || window.innerWidth >= 1024) && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden h-[250px] w-full min-h-[250px]"
+                  >
+                    <ResponsiveContainer width="100%" height="100%" minHeight={250}>
+                      <BarChart data={deptData} layout="vertical" margin={{ left: 0, right: 20 }}>
+                        <XAxis type="number" hide />
+                        <YAxis 
+                          dataKey="name" 
+                          type="category" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: isDarkMode ? '#cbd5e1' : '#475569', fontSize: 9, fontWeight: '600' }}
+                          width={90}
+                        />
+                        <Tooltip 
+                          cursor={{ fill: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}
+                          contentStyle={{ 
+                            backgroundColor: isDarkMode ? '#0f172a' : '#ffffff', 
+                            border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)', 
+                            borderRadius: '8px', 
+                            fontSize: '12px',
+                            color: isDarkMode ? '#fff' : '#000'
+                          }}
+                        />
+                        <Bar 
+                          dataKey="value" 
+                          radius={[0, 4, 4, 0]}
+                          onClick={(data) => {
+                            if (data && data.name) {
+                              setSelectedDepts(prev => 
+                                prev.includes(data.name) 
+                                  ? prev.filter(d => d !== data.name) 
+                                  : [...prev, data.name]
+                              );
+                              if (window.innerWidth < 768) {
+                                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                              }
+                            }
+                          }}
+                          className="cursor-pointer transition-all duration-300"
+                        >
+                          {deptData.map((entry, index) => (
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={selectedDepts.includes(entry.name) ? '#0ea5e9' : (isDarkMode ? 'rgba(14, 165, 233, 0.4)' : 'rgba(14, 165, 233, 0.45)')} 
+                              className="transition-all duration-500"
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Chart: Leadership vs Congregation */}
-            <div className={cn("card-sleek !shadow-none min-h-[350px]", !isDarkMode && "bg-white border-slate-200")}>
-              <h3 className={cn("text-xs font-bold uppercase tracking-widest mb-6 border-b pb-2", isDarkMode ? "text-slate-500 border-white/5" : "text-slate-400 border-slate-100")}>Composição da Igreja</h3>
-              <div className="h-[250px] w-full flex flex-col items-center justify-center min-h-[250px]">
-                <ResponsiveContainer width="100%" height="100%" minHeight={250}>
-                  <PieChart>
-                    <Pie
-                      data={leadershipStats}
-                      innerRadius={55}
-                      outerRadius={75}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {leadershipStats.map((_entry, index) => (
-                        <Cell key={`cell-${index}`} fill={index === 0 ? '#f59e0b' : '#0ea5e9'} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: isDarkMode ? '#0f172a' : '#ffffff', 
-                        border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)', 
-                        borderRadius: '8px', 
-                        fontSize: '12px',
-                        color: isDarkMode ? '#fff' : '#000'
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex justify-center gap-4 mt-4">
-                  {leadershipStats.map((d, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: i === 0 ? '#f59e0b' : '#0ea5e9' }} />
-                      <span className={cn("text-[10px] font-bold uppercase", isDarkMode ? "text-slate-500" : "text-slate-400")}>{d.name}</span>
-                    </div>
-                  ))}
+            <div className={cn("card-sleek !shadow-none min-h-fit transition-all duration-300", !isDarkMode && "bg-white border-slate-200")}>
+              <button 
+                onClick={() => toggleSection('composition')}
+                className={cn("w-full flex items-center justify-between text-xs font-bold uppercase tracking-widest mb-4 md:mb-6 border-b pb-2", isDarkMode ? "text-white border-white/5" : "text-slate-800 border-slate-100")}
+              >
+                <span>Composição da Igreja</span>
+                <div className="lg:hidden">
+                  {expandedSections.composition ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </div>
-              </div>
+              </button>
+
+              <AnimatePresence>
+                {(expandedSections.composition || window.innerWidth >= 1024) && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="h-[250px] w-full flex flex-col items-center justify-center min-h-[250px]">
+                      <ResponsiveContainer width="100%" height="100%" minHeight={250}>
+                        <PieChart>
+                          <Pie
+                            data={leadershipStats}
+                            innerRadius={55}
+                            outerRadius={75}
+                            paddingAngle={5}
+                            dataKey="value"
+                            onClick={(data) => {
+                              if (data && data.name) {
+                                const filterValue = data.name === 'Liderança' ? 'leadership' : 'congregation';
+                                const currentFilter = leadershipFilter;
+                                if (currentFilter === filterValue) {
+                                  setLeadershipFilter('all');
+                                } else {
+                                  setLeadershipFilter(filterValue);
+                                  if (window.innerWidth < 768) {
+                                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                                  }
+                                }
+                              }
+                            }}
+                            className="cursor-pointer outline-none"
+                          >
+                            {leadershipStats.map((entry, index) => (
+                              <Cell 
+                                key={`cell-${index}`} 
+                                fill={
+                                  (leadershipFilter === 'leadership' && entry.name === 'Liderança') ||
+                                  (leadershipFilter === 'congregation' && entry.name === 'Congregação')
+                                    ? (entry.name === 'Liderança' ? '#f59e0b' : '#0ea5e9') 
+                                    : (leadershipFilter !== 'all' ? (isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)') : (entry.name === 'Liderança' ? '#f59e0b' : '#0ea5e9'))
+                                } 
+                                className="transition-all duration-500"
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: isDarkMode ? '#0f172a' : '#ffffff', 
+                              border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)', 
+                              borderRadius: '8px', 
+                              fontSize: '12px',
+                              color: isDarkMode ? '#fff' : '#000'
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="flex justify-center gap-4 mt-4">
+                        {leadershipStats.map((d, i) => (
+                          <div key={i} className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: i === 0 ? '#f59e0b' : '#0ea5e9' }} />
+                            <span className={cn("text-[10px] font-bold uppercase", isDarkMode ? "text-slate-400" : "text-slate-500")}>{d.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Chart: Monthly Distribution */}
-            <div className={cn("card-sleek !shadow-none min-h-[350px]", !isDarkMode && "bg-white border-slate-200")}>
-              <h3 className={cn("text-xs font-bold uppercase tracking-widest mb-6 border-b pb-2", isDarkMode ? "text-slate-500 border-white/5" : "text-slate-400 border-slate-100")}>Ciclo de Aniversários</h3>
-              <div className="h-[250px] w-full min-h-[250px]">
-                <ResponsiveContainer width="100%" height="100%" minHeight={250}>
-                  <BarChart data={monthData}>
-                    <XAxis 
-                      dataKey="name" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fill: isDarkMode ? '#64748b' : '#94a3b8', fontSize: 8 }}
-                      interval={0}
-                    />
-                    <Tooltip 
-                      cursor={{ fill: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}
-                      contentStyle={{ 
-                        backgroundColor: isDarkMode ? '#0f172a' : '#ffffff', 
-                        border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)', 
-                        borderRadius: '8px', 
-                        fontSize: '12px',
-                        color: isDarkMode ? '#fff' : '#000'
-                      }}
-                    />
-                    <Bar dataKey="value" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+            <div className={cn("card-sleek !shadow-none min-h-fit transition-all duration-300", !isDarkMode && "bg-white border-slate-200")}>
+              <button 
+                onClick={() => toggleSection('anniversaries')}
+                className={cn("w-full flex items-center justify-between text-xs font-bold uppercase tracking-widest mb-4 md:mb-6 border-b pb-2", isDarkMode ? "text-white border-white/5" : "text-slate-800 border-slate-100")}
+              >
+                <span>Aniversários</span>
+                <div className="lg:hidden">
+                  {expandedSections.anniversaries ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+              </button>
+
+              <AnimatePresence>
+                {(expandedSections.anniversaries || window.innerWidth >= 1024) && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden h-[250px] w-full min-h-[250px]"
+                  >
+                    <ResponsiveContainer width="100%" height="100%" minHeight={250}>
+                      <BarChart data={monthData}>
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: isDarkMode ? '#cbd5e1' : '#475569', fontSize: 7, fontWeight: '700' }}
+                          interval={0}
+                          angle={window.innerWidth < 768 ? -45 : 0}
+                          textAnchor={window.innerWidth < 768 ? 'end' : 'middle'}
+                          height={window.innerWidth < 768 ? 50 : 30}
+                        />
+                        <Tooltip 
+                          cursor={{ fill: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}
+                          contentStyle={{ 
+                            backgroundColor: isDarkMode ? '#0f172a' : '#ffffff', 
+                            border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)', 
+                            borderRadius: '8px', 
+                            fontSize: '12px',
+                            color: isDarkMode ? '#fff' : '#000'
+                          }}
+                        />
+                        <Bar 
+                          dataKey="value" 
+                          radius={[4, 4, 0, 0]} 
+                          onClick={(data) => {
+                            if (data && data.name) {
+                              const newMonth = data.name === selectedMonth ? null : data.name;
+                              setSelectedMonth(newMonth);
+                              if (newMonth && window.innerWidth < 768) {
+                                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                              }
+                            }
+                          }}
+                          className="cursor-pointer transition-all duration-300"
+                        >
+                          {monthData.map((entry, index) => (
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={selectedMonth === entry.name ? '#0ea5e9' : (isDarkMode ? 'rgba(14, 165, 233, 0.4)' : 'rgba(14, 165, 233, 0.45)')} 
+                              className="transition-all duration-500"
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Upcoming Birthdays Section */}
+            <div className={cn("card-sleek !shadow-none min-h-fit lg:col-span-3 transition-all duration-300", !isDarkMode && "bg-white border-slate-200")}>
+              <button 
+                onClick={() => toggleSection('upcoming')}
+                className={cn("w-full flex items-center justify-between text-xs font-bold uppercase tracking-widest mb-4 border-b pb-2", isDarkMode ? "text-white border-white/5" : "text-slate-800 border-slate-100")}
+              >
+                <div className="flex items-center gap-2">
+                  <Cake className="w-4 h-4 text-rose-500" />
+                  <span>Próximos Aniversariantes</span>
+                </div>
+                <div className="lg:hidden">
+                  {expandedSections.upcoming ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+              </button>
+
+              <AnimatePresence>
+                {(expandedSections.upcoming || window.innerWidth >= 1024) && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+                      {upcomingBirthdays.map((m, i) => (
+                        <div 
+                          key={i} 
+                          className={cn(
+                            "p-3 rounded-xl border flex flex-col items-center text-center transition-all",
+                            isDarkMode ? "bg-white/5 border-white/5" : "bg-slate-50 border-slate-100"
+                          )}
+                        >
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center font-black text-xs bg-sky-500 text-white mb-2 shadow-lg shadow-sky-500/20">
+                            {m.name.charAt(0)}
+                          </div>
+                          <p className={cn("text-[9px] md:text-[10px] font-black uppercase line-clamp-2 w-full px-1", isDarkMode ? "text-white" : "text-slate-800")}>
+                            {m.name.split(' ').slice(0, 2).join(' ')}
+                          </p>
+                          <p className="text-[9px] font-black text-sky-500 mt-1">{m.birthday}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -495,7 +952,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <h3 className={cn("text-lg font-bold", isDarkMode ? "text-white" : "text-slate-800")}>Relatório Digital - Mensageiros da Fé</h3>
               <div className="flex items-center gap-2">
                 <AnimatePresence>
-                  {searchTerm || selectedDept || selectedMonth || leadershipFilter !== 'all' ? (
+                  {searchTerm || selectedDepts.length > 0 || selectedMonth || leadershipFilter !== 'all' ? (
                     <motion.button
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
@@ -578,20 +1035,30 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-between gap-1.5">
                             <div className="flex items-center gap-1.5">
-                              <Cake className="w-3 h-3 text-rose-500/50" />
-                              <span className={cn("text-xs transition-colors uppercase font-bold tracking-tighter", isDarkMode ? "text-slate-600 group-hover:text-slate-400" : "text-slate-400 group-hover:text-slate-600")}>
+                              <Cake className="w-3 h-3 text-rose-500" />
+                              <span className={cn("text-xs transition-colors uppercase font-black tracking-tighter", isDarkMode ? "text-white" : "text-slate-600 group-hover:text-slate-900")}>
                                 {member.birthday}
                               </span>
                             </div>
-                            <button 
-                              onClick={() => {
-                                setEditingMember(member);
-                                setIsMemberModalOpen(true);
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-sky-500/10 rounded-md text-sky-400 transition-all"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button 
+                                onClick={() => {
+                                  setEditingMember(member);
+                                  setIsMemberModalOpen(true);
+                                }}
+                                className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-sky-500/10 text-sky-400" : "hover:bg-slate-200 text-sky-600")}
+                                title="Editar"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteMember(member.id)}
+                                className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-red-500/10 text-red-500" : "hover:bg-red-50 text-red-600")}
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                         </td>
                       </motion.tr>
@@ -610,15 +1077,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           <MemberFormModal 
             member={editingMember} 
             isDarkMode={isDarkMode}
-            onClose={() => setIsMemberModalOpen(false)} 
-            onSave={(member) => {
-              if (editingMember) {
-                setAllMembers(prev => prev.map(m => m.id === member.id ? member : m));
-              } else {
-                setAllMembers(prev => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
-              }
+            onClose={() => {
               setIsMemberModalOpen(false);
-            }}
+              setEditingMember(null);
+            }} 
+            onSave={handleSaveMember}
           />
         )}
       </AnimatePresence>
@@ -831,62 +1294,66 @@ function MemberFormModal({ member, isDarkMode, onClose, onSave }: { member: Memb
 
 function ReportModal({ members, isDarkMode, onClose }: { members: Member[], isDarkMode: boolean, onClose: () => void }) {
   const [selectedDepts, setSelectedDepts] = useState<string[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    setIsGenerating(true);
     const reportMembers = selectedDepts.length === 0 
       ? members 
       : members.filter(m => m.departments.some(d => selectedDepts.includes(d)));
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const html = `
-      <html>
-        <head>
-          <title>Relatório de Membros - Ecclesia</title>
-          <style>
-            body { font-family: sans-serif; padding: 40px; color: #1e293b; }
-            h1 { color: #0ea5e9; margin-bottom: 5px; }
-            p.meta { color: #64748b; font-size: 12px; margin-bottom: 30px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th { text-align: left; background: #f8fafc; padding: 12px; border-bottom: 2px solid #e2e8f0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
-            td { padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
-            .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; text-transform: uppercase; margin-right: 4px; }
-            .leader { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-            .dept { background: #f1f5f9; color: #475569; }
-            @media print { .no-print { display: none; } }
-          </style>
-        </head>
-        <body>
-          <h1>Relatório de Membros - Congregação Mensageiros da Fé</h1>
-          <p class="meta">Gerado em ${new Date().toLocaleDateString('pt-BR')} | Gestão Ecclesia</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>Classificação</th>
-                <th>Departamentos</th>
-                <th>Aniversário</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${reportMembers.sort((a, b) => a.name.localeCompare(b.name)).map(m => `
-                <tr>
-                  <td><strong>${m.name}</strong></td>
-                  <td>${m.isLeadership ? '<span class="badge leader">Liderança</span>' : 'Congregação'}</td>
-                  <td>${m.departments.map(d => `<span class="badge dept">${d}</span>`).join('')}</td>
-                  <td>${m.birthday}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          <script>window.print();</script>
-        </body>
-      </html>
+    // Create a hidden div for rendering the report
+    const reportElement = document.createElement('div');
+    reportElement.style.padding = '40px';
+    reportElement.style.width = '800px';
+    reportElement.style.backgroundColor = 'white';
+    reportElement.style.color = '#1e293b';
+    reportElement.style.fontFamily = 'sans-serif';
+    reportElement.style.position = 'fixed';
+    reportElement.style.left = '-10000px';
+    reportElement.innerHTML = `
+      <h1 style="color: #0ea5e9; margin: 0; font-size: 24px;">Relatório de Membros</h1>
+      <h2 style="color: #1e293b; margin: 0 0 5px 0; font-size: 18px;">Congregação Mensageiros da Fé</h2>
+      <p style="color: #64748b; font-size: 12px; margin-bottom: 30px;">Gerado em ${new Date().toLocaleDateString('pt-BR')} | Portal Ecclesia</p>
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+            <th style="padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase;">Nome</th>
+            <th style="padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase;">Classificação</th>
+            <th style="padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase;">Departamentos</th>
+            <th style="padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase;">Aniversário</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${reportMembers.sort((a, b) => a.name.localeCompare(b.name)).map(m => `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-size: 13px;"><strong>${m.name}</strong></td>
+              <td style="padding: 10px; font-size: 11px;">${m.isLeadership ? 'Liderança' : 'Congregação'}</td>
+              <td style="padding: 10px; font-size: 11px;">${m.departments.join(', ')}</td>
+              <td style="padding: 10px; font-size: 13px;">${m.birthday}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     `;
+    document.body.appendChild(reportElement);
 
-    printWindow.document.write(html);
-    printWindow.document.close();
+    try {
+      const canvas = await html2canvas(reportElement, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+      pdf.save(`relatorio-membros-${new Date().getTime()}.pdf`);
+    } catch (err) {
+      console.error('PDF Error:', err);
+    } finally {
+      document.body.removeChild(reportElement);
+      setIsGenerating(false);
+      onClose();
+    }
   };
 
   return (
@@ -960,10 +1427,18 @@ function ReportModal({ members, isDarkMode, onClose }: { members: Member[], isDa
             </button>
             <button 
               onClick={handlePrint}
-              className="flex-1 px-6 py-3 bg-sky-500 rounded-xl text-sm font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors flex items-center justify-center gap-2"
+              disabled={isGenerating}
+              className={cn(
+                "flex-1 px-6 py-3 bg-sky-500 rounded-xl text-sm font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors flex items-center justify-center gap-2",
+                isGenerating && "opacity-50 cursor-not-allowed"
+              )}
             >
-              <Printer className="w-4 h-4" />
-              Imprimir Relatório
+              {isGenerating ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Printer className="w-4 h-4" />
+              )}
+              {isGenerating ? 'Gerando...' : 'Gerar PDF'}
             </button>
           </div>
         </div>
@@ -989,7 +1464,7 @@ function NavItem({ icon, label, active, darkMode, onClick }: { icon: React.React
     );
   }
   
-  function StatCard({ label, value, subtext, subtextColor = "text-slate-500", color, darkMode }: { label: string, value: number, subtext: string, subtextColor?: string, color: 'sky' | 'indigo' | 'teal', darkMode?: boolean }) {
+  function StatCard({ label, value, subtext, subtextColor = "text-slate-500", color, darkMode, onClick }: { label: string, value: number, subtext: string, subtextColor?: string, color: 'sky' | 'indigo' | 'teal', darkMode?: boolean, onClick?: () => void, [key: string]: any }) {
     const colors = {
       sky: darkMode ? "text-sky-400" : "text-sky-600",
       indigo: darkMode ? "text-indigo-400" : "text-indigo-600",
@@ -997,13 +1472,16 @@ function NavItem({ icon, label, active, darkMode, onClick }: { icon: React.React
     };
   
     return (
-      <div className={cn(
-        "card-sleek flex flex-col justify-center items-center text-center py-8 !shadow-none transition-colors duration-500",
-        !darkMode && "bg-white border-slate-200"
-      )}>
-        <p className={cn("text-[10px] uppercase tracking-[0.2em] font-bold mb-2", darkMode ? "text-slate-500" : "text-slate-400")}>{label}</p>
-        <p className={cn("text-5xl font-bold tracking-tighter transition-colors duration-500", colors[color])}>{value}</p>
-        <p className={cn("text-[10px] font-bold mt-3 uppercase tracking-widest", darkMode ? subtextColor : "text-slate-400")}>{subtext}</p>
-      </div>
+      <button 
+        onClick={onClick}
+        className={cn(
+          "card-sleek flex flex-col justify-center items-center text-center py-6 md:py-8 !shadow-none transition-all duration-300 w-full hover:scale-[1.02] active:scale-95 group",
+          !darkMode ? "bg-white border-slate-200" : "bg-white/5 border-white/5 hover:bg-white/[0.07]"
+        )}
+      >
+        <p className={cn("text-[8px] md:text-[10px] uppercase tracking-[0.2em] font-bold mb-2", darkMode ? "text-slate-400 group-hover:text-slate-300" : "text-slate-400 group-hover:text-slate-600 transition-colors")}>{label}</p>
+        <p className={cn("text-3xl md:text-5xl font-black tracking-tighter transition-all duration-500", colors[color])}>{value}</p>
+        <p className={cn("text-[8px] md:text-[10px] font-bold mt-2 md:mt-3 uppercase tracking-widest", darkMode ? subtextColor : "text-slate-400")}>{subtext}</p>
+      </button>
     );
   }
