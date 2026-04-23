@@ -47,7 +47,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   });
 
   const toggleSection = (section: string) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+    setExpandedSections((prev: Record<string, boolean>) => ({ ...prev, [section]: !prev[section] }));
   };
 
   const [isSyncing, setIsSyncing] = useState(false);
@@ -116,7 +116,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         .single();
       
       if (sError && sError.code !== 'PGRST205' && sError.code !== 'PGRST116') {
-        console.warn('Settings table error:', sError);
+        // Silently handle generic fetch errors to avoid intrusive warnings
+        if (sError.message !== 'Failed to fetch') {
+          console.warn('Settings table error:', sError);
+        }
       }
 
       if (settings) {
@@ -152,9 +155,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const handleSaveMember = async (member: Member) => {
     if (isOffline || !supabase) {
       if (member.id) {
-        setAllMembers(prev => prev.map(m => m.id === member.id ? member : m));
+        setAllMembers((prev: Member[]) => prev.map((m: Member) => m.id === member.id ? member : m));
       } else {
-        setAllMembers(prev => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
+        setAllMembers((prev: Member[]) => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
       }
       setIsMemberModalOpen(false);
       setEditingMember(null);
@@ -194,9 +197,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       alert('Erro ao salvar no banco de dados. Salvando localmente para esta sessão.');
       // Fallback update
       if (member.id) {
-        setAllMembers(prev => prev.map(m => m.id === member.id ? member : m));
+        setAllMembers((prev: Member[]) => prev.map((m: Member) => m.id === member.id ? member : m));
       } else {
-        setAllMembers(prev => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
+        setAllMembers((prev: Member[]) => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
       }
       setIsMemberModalOpen(false);
     }
@@ -206,7 +209,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     if (!confirm('Tem certeza que deseja excluir este membro?')) return;
     
     if (isOffline || !supabase) {
-      setAllMembers(prev => prev.filter(m => m.id !== id));
+      setAllMembers((prev: Member[]) => prev.filter((m: Member) => m.id !== id));
       return;
     }
 
@@ -219,7 +222,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       await fetchData();
     } catch (err) {
       console.error('Error deleting member:', err);
-      setAllMembers(prev => prev.filter(m => m.id !== id));
+      setAllMembers((prev: Member[]) => prev.filter((m: Member) => m.id !== id));
     }
   };
 
@@ -229,7 +232,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     
     setIsSyncing(true);
     try {
-      const dbMembers = membersData.map(m => ({
+      const dbMembers = membersData.map((m: Member) => ({
         name: m.name,
         birthday: m.birthday,
         month: m.month,
@@ -775,12 +778,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         <Bar 
                           dataKey="value" 
                           radius={[0, 4, 4, 0]}
-                          onClick={(data) => {
-                            if (data && data.name) {
-                              setSelectedDepts(prev => 
-                                prev.includes(data.name) 
-                                  ? prev.filter(d => d !== data.name) 
-                                  : [...prev, data.name]
+                          onClick={(data: any) => {
+                            const name = data?.name;
+                            if (name && typeof name === 'string') {
+                              setSelectedDepts((prev: string[]) => 
+                                prev.includes(name) 
+                                  ? prev.filter((d: string) => d !== name) 
+                                  : [...prev, name]
                               );
                               if (window.innerWidth < 768) {
                                 window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -1131,6 +1135,16 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               </table>
             </div>
           </div>
+
+          {/* Footer Signature - Creative & Discreet */}
+          <footer className="pt-12 pb-8 opacity-20 hover:opacity-60 transition-opacity duration-700">
+            <p className={cn(
+              "text-[9px] font-bold tracking-[0.3em] uppercase text-center",
+              isDarkMode ? "text-slate-500" : "text-slate-400"
+            )}>
+              © {new Date().getFullYear()} Portal Ecclesia • Desenvolvido por Samuel Nascimento • Com ajuda do Espírito Santo
+            </p>
+          </footer>
         </div>
       </main>
 
@@ -1456,9 +1470,9 @@ function ReportModal({ members, isDarkMode, onClose }: { members: Member[], isDa
                 key={dept}
                 onClick={() => {
                   if (selectedDepts.includes(dept)) {
-                    setSelectedDepts(selectedDepts.filter(d => d !== dept));
+                    setSelectedDepts((prev: string[]) => prev.filter((d: string) => d !== dept));
                   } else {
-                    setSelectedDepts([...selectedDepts, dept]);
+                    setSelectedDepts((prev: string[]) => [...prev, dept]);
                   }
                 }}
                 className={cn(
