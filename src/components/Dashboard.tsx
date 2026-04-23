@@ -31,6 +31,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [logoBase64, setLogoBase64] = useState<string | null>(null);
+  const [churchName, setChurchName] = useState('Mensageiros da Fé');
 
   // Modals state
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
@@ -52,22 +53,45 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Profile Logo Change
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoBase64(reader.result as string);
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        setLogoBase64(base64);
+        
+        // Save to Supabase if online
+        if (supabase && !isOffline) {
+          try {
+            const { error } = await supabase
+              .from('settings')
+              .upsert({ 
+                id: 'main', 
+                logo_url: base64, 
+                church_name: churchName,
+                updated_at: new Date().toISOString() 
+              }, { onConflict: 'id' });
+            
+            if (error) {
+              console.error('Erro ao salvar logo no Supabase:', error);
+              alert('Erro ao salvar logo na nuvem. Ela ficará salva apenas nesta sessão.');
+            } else {
+              console.log('Logo salva com sucesso no Supabase');
+            }
+          } catch (err) {
+            console.error('Exceção ao salvar logo:', err);
+          }
+        }
       };
       reader.readAsDataURL(file);
     }
   };
 
   // Supabase Integration
-  const fetchMembers = async () => {
+  const fetchData = async () => {
     setIsLoading(true);
     
-    // Check if Supabase is configured
     if (!supabase) {
       setAllMembers(membersData);
       setIsOffline(true);
@@ -76,24 +100,32 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
 
     try {
-      const { data, error } = await supabase
+      // 1. Fetch Members
+      const { data: members, error: mError } = await supabase
         .from('members')
         .select('*')
         .order('name');
       
-      if (error) {
-        // Handle case where table doesn't exist yet (PGRST205)
-        if (error.code === 'PGRST205') {
-          console.warn('Tabela "members" não encontrada no Supabase. Usando dados locais.');
-          setAllMembers(membersData);
-          setIsOffline(true);
-          return;
-        }
-        throw error;
-      };
+      if (mError && mError.code !== 'PGRST205') throw mError;
+
+      // 2. Fetch Settings (Logo and Name)
+      const { data: settings, error: sError } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'main')
+        .single();
       
-      if (data && data.length > 0) {
-        const mappedData = data.map(m => ({
+      if (sError && sError.code !== 'PGRST205' && sError.code !== 'PGRST116') {
+        console.warn('Settings table error:', sError);
+      }
+
+      if (settings) {
+        if (settings.logo_url) setLogoBase64(settings.logo_url);
+        if (settings.church_name) setChurchName(settings.church_name);
+      }
+      
+      if (members && members.length > 0) {
+        const mappedData = members.map(m => ({
           ...m,
           isLeadership: m.is_leadership,
           membershipType: m.membership_type
@@ -102,10 +134,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         setIsOffline(false);
       } else {
         setAllMembers(membersData);
-        setIsOffline(false);
+        setIsOffline(mError?.code === 'PGRST205');
       }
     } catch (err) {
-      console.error('Error fetching members:', err);
+      console.error('Error fetching data:', err);
       setAllMembers(membersData);
       setIsOffline(true);
     } finally {
@@ -114,7 +146,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   };
 
   useEffect(() => {
-    fetchMembers();
+    fetchData();
   }, []);
 
   const handleSaveMember = async (member: Member) => {
@@ -154,7 +186,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         if (error) throw error;
       }
       
-      await fetchMembers();
+      await fetchData();
       setIsMemberModalOpen(false);
       setEditingMember(null);
     } catch (err) {
@@ -184,7 +216,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         .delete()
         .eq('id', id);
       if (error) throw error;
-      await fetchMembers();
+      await fetchData();
     } catch (err) {
       console.error('Error deleting member:', err);
       setAllMembers(prev => prev.filter(m => m.id !== id));
@@ -212,9 +244,21 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         .insert(dbMembers);
       
       if (error) throw error;
+
+      // Also sync settings if they exist
+      if (supabase) {
+        await supabase
+          .from('settings')
+          .upsert({ 
+            id: 'main', 
+            logo_url: logoBase64, 
+            church_name: churchName,
+            updated_at: new Date().toISOString()
+          });
+      }
       
       alert('Dados sincronizados com sucesso!');
-      await fetchMembers();
+      await fetchData();
     } catch (err) {
       console.error('Sync error:', err);
       alert('Erro ao sincronizar dados. Verifique a tabela no Supabase.');
@@ -376,7 +420,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     <>
                       <Church className={cn("w-8 h-8 mb-0.5", isDarkMode ? "text-sky-400" : "text-sky-600")} />
                       <span className={cn("text-[6px] font-black uppercase leading-none text-center px-2", isDarkMode ? "text-sky-400" : "text-sky-600")}>
-                        MENSAGEIROS DA FÉ
+                        {churchName.toUpperCase()}
                       </span>
                     </>
                   )}
@@ -392,9 +436,25 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 <Flame className="w-3.5 h-3.5 text-white fill-white" />
               </div>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 relative group/name">
               <h2 className={cn("text-xs font-black tracking-[0.25em] uppercase leading-none", isDarkMode ? "text-white" : "text-slate-800")}>PORTAL ECCLESIA</h2>
-              <p className={cn("text-[8px] font-black uppercase tracking-tighter", isDarkMode ? "text-sky-500" : "text-sky-600")}>Congr. Mensageiros da Fé</p>
+              <div className="flex items-center gap-2">
+                <p className={cn("text-[8px] font-black uppercase tracking-tighter", isDarkMode ? "text-sky-500" : "text-sky-600")}>{churchName}</p>
+                <button 
+                  onClick={() => {
+                    const newName = prompt('Novo nome da igreja:', churchName);
+                    if (newName) {
+                      setChurchName(newName);
+                      if (supabase && !isOffline) {
+                        supabase.from('settings').upsert({ id: 'main', church_name: newName, logo_url: logoBase64 });
+                      }
+                    }
+                  }}
+                  className="opacity-0 group-hover/name:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded"
+                >
+                  <Edit2 className="w-2 h-2 text-slate-500" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -529,9 +589,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           )}>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-sky-500 flex items-center justify-center font-bold text-xs text-white shadow-lg shadow-sky-500/20">AD</div>
-              <div className="min-w-0">
-                <p className={cn("text-xs font-bold truncate", isDarkMode ? "text-white" : "text-slate-800")}>Admin Mensageiros</p>
-                <p className="text-[10px] text-slate-500 truncate uppercase font-bold tracking-tighter">Congregação Ativa</p>
+              <div className="min-w-0 text-left">
+                <p className={cn("text-xs font-bold truncate", isDarkMode ? "text-white" : "text-slate-800")}>Painel Administrativo</p>
+                <p className="text-[10px] text-slate-500 truncate uppercase font-bold tracking-tighter">Igreja Conectada</p>
               </div>
             </div>
           </div>
@@ -574,7 +634,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 <div className={cn("hidden sm:block w-1 h-1 rounded-full", isDarkMode ? "bg-slate-600" : "bg-slate-300")} />
               </div>
               <p className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-widest truncate", isDarkMode ? "text-sky-500" : "text-sky-600")}>
-                Mensageiros da Fé
+                {churchName}
               </p>
             </div>
           </div>
@@ -1040,7 +1100,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                                 {member.birthday}
                               </span>
                             </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className={cn(
+                              "flex items-center gap-1 transition-opacity",
+                              "lg:opacity-0 lg:group-hover:opacity-100 opacity-100"
+                            )}>
                               <button 
                                 onClick={() => {
                                   setEditingMember(member);
