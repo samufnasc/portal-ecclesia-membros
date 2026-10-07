@@ -491,11 +491,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     </>
                   )}
                   
-                  <label className="absolute inset-0 bg-black/50 opacity-0 group-hover/logo:opacity-100 transition-all duration-300 flex flex-col items-center justify-center cursor-pointer rounded-full backdrop-blur-[2px]">
-                    <Camera className="w-5 h-5 text-white mb-1" />
-                    <span className="text-[6px] font-black text-white uppercase">Trocar Logo</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
-                  </label>
+                  {currentUser.role === 'admin' && (
+                    <label className="absolute inset-0 bg-black/50 opacity-0 group-hover/logo:opacity-100 transition-all duration-300 flex flex-col items-center justify-center cursor-pointer rounded-full backdrop-blur-[2px]">
+                      <Camera className="w-5 h-5 text-white mb-1" />
+                      <span className="text-[6px] font-black text-white uppercase">Trocar Logo</span>
+                      <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                    </label>
+                  )}
                 </div>
               </div>
               <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-amber-500 rounded-full flex items-center justify-center shadow-lg border-2 border-[#0f172a] animate-pulse">
@@ -506,20 +508,23 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <h2 className={cn("text-xs font-black tracking-[0.25em] uppercase leading-none", isDarkMode ? "text-white" : "text-slate-800")}>PORTAL ECCLESIA</h2>
               <div className="flex items-center gap-2">
                 <p className={cn("text-[8px] font-black uppercase tracking-tighter", isDarkMode ? "text-sky-500" : "text-sky-600")}>{churchName}</p>
-                <button 
-                  onClick={() => {
-                    const newName = prompt('Novo nome da igreja:', churchName);
-                    if (newName) {
-                      setChurchName(newName);
-                      if (supabase && !isOffline) {
-                        supabase.from('settings').upsert({ id: 'main', church_name: newName, logo_url: logoBase64 });
+                {currentUser.role === 'admin' && (
+                  <button 
+                    onClick={() => {
+                      const newName = prompt('Novo nome da igreja:', churchName);
+                      if (newName) {
+                        setChurchName(newName);
+                        if (supabase && !isOffline) {
+                          supabase.from('settings').upsert({ id: 'main', church_name: newName, logo_url: logoBase64 });
+                        }
                       }
-                    }
-                  }}
-                  className="opacity-0 group-hover/name:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded"
-                >
-                  <Edit2 className="w-2 h-2 text-slate-500" />
-                </button>
+                    }}
+                    className="opacity-0 group-hover/name:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded cursor-pointer"
+                    title="Editar Nome da Igreja"
+                  >
+                    <Edit2 className="w-2 h-2 text-slate-500" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
