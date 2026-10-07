@@ -1302,7 +1302,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1 mb-1 block">
-                    Senha (Líderes: 1 a 7 | Admin: senha específica)
+                    Senha de Acesso
                   </label>
                   <input
                     type="password"
