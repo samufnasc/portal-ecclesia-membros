@@ -52,6 +52,65 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // User Session & Permissions
+  const [currentUser, setCurrentUser] = useState<{ name: string; role: 'admin' | 'leader' | 'visitor' }>(() => {
+    const saved = localStorage.getItem('portal_user_session');
+    return saved ? JSON.parse(saved) : { name: 'Visitante', role: 'visitor' };
+  });
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  const handleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    const u = loginUsername.trim().toLowerCase();
+    const p = loginPassword.trim();
+
+    if (u === 'admin' && p === 'Jesussalva') {
+      const user = { name: 'Administrador', role: 'admin' as const };
+      setCurrentUser(user);
+      localStorage.setItem('portal_user_session', JSON.stringify(user));
+      setIsLoginModalOpen(false);
+      setLoginUsername('');
+      setLoginPassword('');
+      return;
+    }
+
+    const foundLeader = allMembers.find(m => {
+      if (!m.isLeadership) return false;
+      const firstName = m.name.trim().split(/\s+/)[0].toLowerCase();
+      return firstName === u;
+    });
+
+    if (foundLeader && p === '1234567') {
+      const user = { name: foundLeader.name, role: 'leader' as const };
+      setCurrentUser(user);
+      localStorage.setItem('portal_user_session', JSON.stringify(user));
+      setIsLoginModalOpen(false);
+      setLoginUsername('');
+      setLoginPassword('');
+      return;
+    }
+
+    setLoginError('Credenciais inválidas. Para líderes, use seu primeiro nome e senha (1 a 7).');
+  };
+
+  const handleLogout = () => {
+    const visitor = { name: 'Visitante', role: 'visitor' as const };
+    setCurrentUser(visitor);
+    localStorage.removeItem('portal_user_session');
+  };
+
+  const checkPermissionAndExecute = (action: () => void) => {
+    if (currentUser.role === 'admin' || currentUser.role === 'leader') {
+      action();
+    } else {
+      setIsLoginModalOpen(true);
+    }
+  };
+
   // Profile Logo Change
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -682,10 +741,25 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 {isSyncing ? 'Sincronizando...' : 'Sincronizar Cloud'}
               </button>
             )}
+            {currentUser.role !== 'visitor' ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-sky-500/10 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-400">
+                <span>👤 {currentUser.name} ({currentUser.role === 'admin' ? 'Admin' : 'Líder'})</span>
+                <button onClick={handleLogout} className="text-slate-400 hover:text-white ml-2 text-xs underline cursor-pointer">Sair</button>
+              </div>
+            ) : (
+              <button 
+                onClick={() => setIsLoginModalOpen(true)}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-lg text-xs font-bold text-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+                title="Entrar como Admin ou Líder"
+              >
+                <span>🔑 Entrar</span>
+              </button>
+            )}
+
             <button 
-              onClick={() => setIsReportModalOpen(true)}
+              onClick={() => checkPermissionAndExecute(() => setIsReportModalOpen(true))}
               className={cn(
-                "p-2 border rounded-lg text-xs font-bold transition-colors md:px-4 md:py-2 md:flex md:gap-2 md:items-center",
+                "p-2 border rounded-lg text-xs font-bold transition-colors md:px-4 md:py-2 md:flex md:gap-2 md:items-center cursor-pointer",
                 isDarkMode 
                   ? "bg-slate-800 border-white/5 text-slate-300 hover:bg-slate-700" 
                   : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -696,11 +770,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <span className="hidden md:inline">Relatórios</span>
             </button>
             <button 
-              onClick={() => {
+              onClick={() => checkPermissionAndExecute(() => {
                 setEditingMember(null);
                 setIsMemberModalOpen(true);
-              }}
-              className="p-2 bg-sky-500 rounded-lg text-xs font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors flex items-center md:px-4 md:py-2 md:gap-2"
+              })}
+              className="p-2 bg-sky-500 rounded-lg text-xs font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors flex items-center md:px-4 md:py-2 md:gap-2 cursor-pointer"
               title="Novo Membro"
             >
               <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" />
@@ -1109,17 +1183,17 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               "lg:opacity-0 lg:group-hover:opacity-100 opacity-100"
                             )}>
                               <button 
-                                onClick={() => {
+                                onClick={() => checkPermissionAndExecute(() => {
                                   setEditingMember(member);
                                   setIsMemberModalOpen(true);
-                                }}
+                                })}
                                 className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-sky-500/10 text-sky-400" : "hover:bg-slate-200 text-sky-600")}
                                 title="Editar"
                               >
                                 <Edit2 className="w-3 h-3" />
                               </button>
                               <button 
-                                onClick={() => handleDeleteMember(member.id)}
+                                onClick={() => checkPermissionAndExecute(() => handleDeleteMember(member.id))}
                                 className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-red-500/10 text-red-500" : "hover:bg-red-50 text-red-600")}
                                 title="Excluir"
                               >
@@ -1171,6 +1245,89 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             isDarkMode={isDarkMode}
             onClose={() => setIsReportModalOpen(false)} 
           />
+        )}
+      </AnimatePresence>
+
+      {/* Login Modal */}
+      <AnimatePresence>
+        {isLoginModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className={cn(
+                "w-full max-w-md rounded-2xl border p-6 shadow-2xl relative",
+                isDarkMode ? "bg-[#0f172a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
+              )}
+            >
+              <button 
+                onClick={() => setIsLoginModalOpen(false)}
+                className="absolute top-4 right-4 p-2 rounded-lg text-slate-400 hover:bg-white/5 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="text-center mb-6">
+                <div className="inline-flex items-center justify-center w-14 h-14 bg-sky-500 rounded-2xl mb-3 shadow-lg shadow-sky-500/20 text-white">
+                  <Church className="w-7 h-7" />
+                </div>
+                <h3 className="text-xl font-bold">Acesso Restrito</h3>
+                <p className="text-slate-400 text-xs mt-1">
+                  Faça login como Administrador ou Líder de Departamento para acessar <strong>+Novo Membro</strong> e <strong>Relatórios</strong>.
+                </p>
+              </div>
+
+              <form onSubmit={handleLoginSubmit} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1 mb-1 block">
+                    Usuário (Primeiro Nome ou 'admin')
+                  </label>
+                  <input
+                    type="text"
+                    value={loginUsername}
+                    onChange={(e) => setLoginUsername(e.target.value)}
+                    placeholder="Ex: Samuel, Karoline ou admin"
+                    required
+                    className={cn(
+                      "w-full px-4 py-3 rounded-xl border text-sm outline-none focus:ring-2",
+                      isDarkMode ? "bg-slate-800 border-white/5 text-white focus:ring-sky-500/20" : "bg-slate-50 border-slate-200 text-slate-800 focus:ring-sky-500/10"
+                    )}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1 mb-1 block">
+                    Senha (Líderes: 1 a 7 | Admin: senha específica)
+                  </label>
+                  <input
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="•••••••"
+                    required
+                    className={cn(
+                      "w-full px-4 py-3 rounded-xl border text-sm outline-none focus:ring-2",
+                      isDarkMode ? "bg-slate-800 border-white/5 text-white focus:ring-sky-500/20" : "bg-slate-50 border-slate-200 text-slate-800 focus:ring-sky-500/10"
+                    )}
+                  />
+                </div>
+
+                {loginError && (
+                  <p className="text-red-400 text-xs bg-red-400/10 p-3 rounded-lg border border-red-400/20">
+                    {loginError}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-sky-500/20 transition-all cursor-pointer"
+                >
+                  Entrar no Sistema
+                </button>
+              </form>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
