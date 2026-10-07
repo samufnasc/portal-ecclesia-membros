@@ -1301,9 +1301,12 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1 mb-1 block">
-                    Senha de Acesso
-                  </label>
+                  <div className="flex justify-between items-center mb-1 ml-1">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
+                      Senha de Acesso
+                    </label>
+                    <span className="text-[10px] text-sky-400 italic">Dica (Admin): "Quem é o autor da Salvação?"</span>
+                  </div>
                   <input
                     type="password"
                     value={loginPassword}
