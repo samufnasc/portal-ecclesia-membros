@@ -80,8 +80,12 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
     const foundLeader = allMembers.find(m => {
       if (!m.isLeadership) return false;
-      const firstName = m.name.trim().split(/\s+/)[0].toLowerCase();
-      return firstName === u;
+      const nameLower = m.name.toLowerCase();
+      const cleanName = nameLower.replace(/^(pr\.?|pra\.?|pastor|pastora|missionária|missionario|diácono|diaconisa|obreiro|obreira|irmão|irmã)\s+/i, '');
+      const parts = cleanName.split(/\s+/);
+      const matchFirst = parts[0] === u;
+      const matchFull = nameLower.includes(u);
+      return matchFirst || matchFull;
     });
 
     if (foundLeader && p === '1234567') {
