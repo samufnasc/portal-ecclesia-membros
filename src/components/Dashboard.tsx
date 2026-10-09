@@ -1565,15 +1565,25 @@ function ReportModal({ members, logoBase64, churchName, isDarkMode, onClose }: {
         pdf.setLineWidth(0.5);
         pdf.line(margin, margin + 22, pageWidth - margin, margin + 22);
 
+        if (logoBase64) {
+          try {
+            pdf.addImage(logoBase64, 'PNG', margin + 3, margin + 2, 18, 18);
+          } catch (e) {
+            console.error("Error adding logo to PDF:", e);
+          }
+        }
+
+        const textOffset = logoBase64 ? margin + 24 : margin + 5;
+
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(14);
         pdf.setTextColor(14, 165, 233);
-        pdf.text(churchName, margin + 5, margin + 9);
+        pdf.text(churchName, textOffset, margin + 9);
 
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(10);
         pdf.setTextColor(71, 85, 105);
-        pdf.text(title, margin + 5, margin + 16);
+        pdf.text(title, textOffset, margin + 16);
 
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(8);
