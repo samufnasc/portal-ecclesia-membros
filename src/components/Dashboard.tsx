@@ -1567,10 +1567,6 @@ function ReportModal({ members, logoBase64, churchName, isDarkMode, onClose }: {
 
         if (logoBase64) {
           try {
-            pdf.setFillColor(255, 255, 255);
-            pdf.setDrawColor(226, 232, 240);
-            pdf.setLineWidth(0.3);
-            pdf.roundedRect(margin + 2, margin + 2, 18, 18, 9, 9, 'FD');
             pdf.addImage(logoBase64, 'PNG', margin + 2, margin + 2, 18, 18);
           } catch (e) {
             console.error("Error adding logo to PDF:", e);
