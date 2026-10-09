@@ -1251,6 +1251,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         {isReportModalOpen && (
           <ReportModal 
             members={allMembers}
+            logoBase64={logoBase64}
+            churchName={churchName}
             isDarkMode={isDarkMode}
             onClose={() => setIsReportModalOpen(false)} 
           />
@@ -1538,7 +1540,7 @@ function MemberFormModal({ member, isDarkMode, onClose, onSave }: { member: Memb
   );
 }
 
-function ReportModal({ members, isDarkMode, onClose }: { members: Member[], isDarkMode: boolean, onClose: () => void }) {
+function ReportModal({ members, logoBase64, churchName, isDarkMode, onClose }: { members: Member[], logoBase64: string | null, churchName: string, isDarkMode: boolean, onClose: () => void }) {
   const [selectedDepts, setSelectedDepts] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -1548,55 +1550,152 @@ function ReportModal({ members, isDarkMode, onClose }: { members: Member[], isDa
       ? members 
       : members.filter(m => m.departments.some(d => selectedDepts.includes(d)));
 
-    // Create a hidden div for rendering the report
-    const reportElement = document.createElement('div');
-    reportElement.style.padding = '40px';
-    reportElement.style.width = '800px';
-    reportElement.style.backgroundColor = 'white';
-    reportElement.style.color = '#1e293b';
-    reportElement.style.fontFamily = 'sans-serif';
-    reportElement.style.position = 'fixed';
-    reportElement.style.left = '-10000px';
-    reportElement.innerHTML = `
-      <h1 style="color: #0ea5e9; margin: 0; font-size: 24px;">Relatório de Membros</h1>
-      <h2 style="color: #1e293b; margin: 0 0 5px 0; font-size: 18px;">Congregação Mensageiros da Fé</h2>
-      <p style="color: #64748b; font-size: 12px; margin-bottom: 30px;">Gerado em ${new Date().toLocaleDateString('pt-BR')} | Portal Ecclesia</p>
-      <table style="width: 100%; border-collapse: collapse;">
-        <thead>
-          <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
-            <th style="padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase;">Nome</th>
-            <th style="padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase;">Classificação</th>
-            <th style="padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase;">Departamentos</th>
-            <th style="padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase;">Aniversário</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${reportMembers.sort((a, b) => a.name.localeCompare(b.name)).map(m => `
-            <tr style="border-bottom: 1px solid #e2e8f0;">
-              <td style="padding: 10px; font-size: 13px;"><strong>${m.name}</strong></td>
-              <td style="padding: 10px; font-size: 11px;">${m.isLeadership ? 'Liderança' : 'Congregação'}</td>
-              <td style="padding: 10px; font-size: 11px;">${m.departments.join(', ')}</td>
-              <td style="padding: 10px; font-size: 13px;">${m.birthday}</td>
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-10000px';
+    container.style.top = '0';
+
+    // Page 1: Executive Summary & Statistics
+    const page1 = document.createElement('div');
+    page1.style.width = '794px';
+    page1.style.minHeight = '1123px';
+    page1.style.padding = '50px';
+    page1.style.backgroundColor = 'white';
+    page1.style.color = '#1e293b';
+    page1.style.fontFamily = 'sans-serif';
+    page1.style.boxSizing = 'border-box';
+    page1.style.display = 'flex';
+    page1.style.flexDirection = 'column';
+    page1.style.justifyContent = 'space-between';
+
+    page1.innerHTML = `
+      <div>
+        <div style="display: flex; align-items: center; gap: 20px; border-bottom: 2px solid #0ea5e9; padding-bottom: 20px; margin-bottom: 30px;">
+          ${logoBase64 ? `<img src="${logoBase64}" style="width: 70px; height: 70px; object-fit: cover; border-radius: 50%; border: 2px solid #0ea5e9;" />` : `<div style="width: 70px; height: 70px; background: #0ea5e9; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 24px;">MF</div>`}
+          <div>
+            <h1 style="color: #0ea5e9; margin: 0; font-size: 22px; font-weight: bold;">${churchName}</h1>
+            <h2 style="color: #475569; margin: 4px 0 0 0; font-size: 14px; font-weight: normal;">Relatório Estatístico e Gerencial de Membros</h2>
+            <p style="color: #94a3b8; font-size: 11px; margin: 4px 0 0 0;">Emitido em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')} | Portal Ecclesia</p>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; text-align: center;">
+            <p style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: bold; margin: 0 0 5px 0;">Total de Membros</p>
+            <p style="color: #0ea5e9; font-size: 24px; font-weight: bold; margin: 0;">${reportMembers.length}</p>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; text-align: center;">
+            <p style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: bold; margin: 0 0 5px 0;">Liderança</p>
+            <p style="color: #6366f1; font-size: 24px; font-weight: bold; margin: 0;">${reportMembers.filter(m => m.isLeadership).length}</p>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; text-align: center;">
+            <p style="color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: bold; margin: 0 0 5px 0;">Departamentos</p>
+            <p style="color: #14b8a6; font-size: 24px; font-weight: bold; margin: 0;">${DEPARTMENTS.length}</p>
+          </div>
+        </div>
+
+        <h3 style="color: #1e293b; font-size: 16px; font-weight: bold; margin-bottom: 15px; border-left: 4px solid #0ea5e9; padding-left: 10px;">Quantidade de Pessoas por Departamento</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+          <thead>
+            <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+              <th style="padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569;">Departamento</th>
+              <th style="padding: 10px 12px; text-align: center; font-size: 11px; text-transform: uppercase; color: #475569;">Qtd de Membros</th>
+              <th style="padding: 10px 12px; text-align: right; font-size: 11px; text-transform: uppercase; color: #475569;">Participação</th>
             </tr>
-          `).join('')}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            ${DEPARTMENTS.map(dept => {
+              const count = reportMembers.filter(m => m.departments.includes(dept)).length;
+              const percentage = reportMembers.length > 0 ? ((count / reportMembers.length) * 100).toFixed(1) : '0';
+              return `
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                  <td style="padding: 10px 12px; font-size: 13px; font-weight: bold; color: #1e293b;">${dept}</td>
+                  <td style="padding: 10px 12px; text-align: center; font-size: 13px; color: #0ea5e9; font-weight: bold;">${count} pessoa(s)</td>
+                  <td style="padding: 10px 12px; text-align: right; font-size: 13px; color: #64748b;">${percentage}%</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="text-align: center; border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 11px; color: #94a3b8;">
+        Página 1 de 2 — Relatório Oficial Gerado pelo Portal Ecclesia
+      </div>
     `;
-    document.body.appendChild(reportElement);
+
+    // Page 2: Detailed Member Roster
+    const page2 = document.createElement('div');
+    page2.style.width = '794px';
+    page2.style.minHeight = '1123px';
+    page2.style.padding = '50px';
+    page2.style.backgroundColor = 'white';
+    page2.style.color = '#1e293b';
+    page2.style.fontFamily = 'sans-serif';
+    page2.style.boxSizing = 'border-box';
+    page2.style.display = 'flex';
+    page2.style.flexDirection = 'column';
+    page2.style.justifyContent = 'space-between';
+
+    page2.innerHTML = `
+      <div>
+        <div style="display: flex; align-items: center; gap: 20px; border-bottom: 2px solid #0ea5e9; padding-bottom: 20px; margin-bottom: 30px;">
+          ${logoBase64 ? `<img src="${logoBase64}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 50%; border: 2px solid #0ea5e9;" />` : `<div style="width: 50px; height: 50px; background: #0ea5e9; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px;">MF</div>`}
+          <div>
+            <h1 style="color: #0ea5e9; margin: 0; font-size: 18px; font-weight: bold;">${churchName} — Relação Detalhada de Membros</h1>
+            <p style="color: #94a3b8; font-size: 11px; margin: 2px 0 0 0;">Listagem completa nominal ordenada por nome</p>
+          </div>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+              <th style="padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569;">Nome</th>
+              <th style="padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569;">Classificação</th>
+              <th style="padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569;">Departamentos</th>
+              <th style="padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569;">Aniversário</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${reportMembers.sort((a, b) => a.name.localeCompare(b.name)).map(m => `
+              <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 9px 10px; font-size: 12px; color: #1e293b;"><strong>${m.name}</strong></td>
+                <td style="padding: 9px 10px; font-size: 11px; color: #475569;">${m.isLeadership ? 'Liderança' : 'Congregação'}</td>
+                <td style="padding: 9px 10px; font-size: 11px; color: #475569;">${m.departments.join(', ')}</td>
+                <td style="padding: 9px 10px; font-size: 12px; color: #1e293b;">${m.birthday}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="text-align: center; border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 11px; color: #94a3b8;">
+        Página 2 de 2 — Relatório Oficial Gerado pelo Portal Ecclesia
+      </div>
+    `;
+
+    container.appendChild(page1);
+    container.appendChild(page2);
+    document.body.appendChild(container);
 
     try {
-      const canvas = await html2canvas(reportElement, { scale: 2 });
-      const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const imgWidth = 210;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+
+      const canvas1 = await html2canvas(page1, { scale: 2, useCORS: true });
+      const imgData1 = canvas1.toDataURL('image/png');
+      const imgHeight1 = (canvas1.height * imgWidth) / canvas1.width;
+      pdf.addImage(imgData1, 'PNG', 0, 0, imgWidth, Math.min(imgHeight1, 297));
+
+      pdf.addPage();
+      const canvas2 = await html2canvas(page2, { scale: 2, useCORS: true });
+      const imgData2 = canvas2.toDataURL('image/png');
+      const imgHeight2 = (canvas2.height * imgWidth) / canvas2.width;
+      pdf.addImage(imgData2, 'PNG', 0, 0, imgWidth, Math.min(imgHeight2, 297));
+
       pdf.save(`relatorio-membros-${new Date().getTime()}.pdf`);
     } catch (err) {
       console.error('PDF Error:', err);
     } finally {
-      document.body.removeChild(reportElement);
+      document.body.removeChild(container);
       setIsGenerating(false);
       onClose();
     }
