@@ -1558,7 +1558,7 @@ function ReportModal({ members, logoBase64, churchName, isDarkMode, onClose }: {
       const printableWidth = pageWidth - (margin * 2);
 
       // Helper for adding header
-      const addHeader = (title: string, subtitle: string) => {
+      const addHeader = (title: string, subtitle: string, deptName?: string) => {
         pdf.setFillColor(248, 250, 252);
         pdf.rect(margin, margin, printableWidth, 22, 'F');
         pdf.setDrawColor(14, 165, 233);
@@ -1567,7 +1567,11 @@ function ReportModal({ members, logoBase64, churchName, isDarkMode, onClose }: {
 
         if (logoBase64) {
           try {
-            pdf.addImage(logoBase64, 'PNG', margin + 3, margin + 2, 18, 18);
+            pdf.setFillColor(255, 255, 255);
+            pdf.setDrawColor(226, 232, 240);
+            pdf.setLineWidth(0.3);
+            pdf.roundedRect(margin + 2, margin + 2, 18, 18, 9, 9, 'FD');
+            pdf.addImage(logoBase64, 'PNG', margin + 2, margin + 2, 18, 18);
           } catch (e) {
             console.error("Error adding logo to PDF:", e);
           }
@@ -1580,10 +1584,23 @@ function ReportModal({ members, logoBase64, churchName, isDarkMode, onClose }: {
         pdf.setTextColor(14, 165, 233);
         pdf.text(churchName, textOffset, margin + 9);
 
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(10);
-        pdf.setTextColor(71, 85, 105);
-        pdf.text(title, textOffset, margin + 16);
+        if (deptName) {
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+          pdf.setTextColor(71, 85, 105);
+          pdf.text("Departamento: ", textOffset, margin + 16);
+
+          const labelWidth = pdf.getTextWidth("Departamento: ");
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(11);
+          pdf.setTextColor(14, 165, 233);
+          pdf.text(deptName, textOffset + labelWidth, margin + 16);
+        } else {
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(10);
+          pdf.setTextColor(71, 85, 105);
+          pdf.text(title, textOffset, margin + 16);
+        }
 
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(8);
@@ -1694,7 +1711,7 @@ function ReportModal({ members, logoBase64, churchName, isDarkMode, onClose }: {
           .filter(m => m.departments.includes(dept))
           .sort((a, b) => a.name.localeCompare(b.name));
 
-        addHeader(`Departamento: ${dept}`, `Total de participantes: ${deptMembers.length} pessoa(s)`);
+        addHeader("", `Total de participantes: ${deptMembers.length} pessoa(s)`, dept);
 
         currentY = margin + 30;
 
@@ -1716,7 +1733,7 @@ function ReportModal({ members, logoBase64, churchName, isDarkMode, onClose }: {
           if (currentY > pageHeight - 25) {
             addFooter(index + 2, totalPages);
             pdf.addPage();
-            addHeader(`Departamento: ${dept} (Continuação)`, `Total de participantes: ${deptMembers.length} pessoa(s)`);
+            addHeader("", `Total de participantes: ${deptMembers.length} pessoa(s)`, `${dept} (Continuação)`);
             currentY = margin + 30;
 
             pdf.setFillColor(241, 245, 249);
