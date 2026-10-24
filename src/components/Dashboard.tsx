@@ -1402,6 +1402,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMode, allMembers }: { isOpen: boolean, onClose: () => void, departmentLeaders: Record<string, string>, onSave: (l: Record<string, string>) => void, isDarkMode: boolean, allMembers: Member[] }) {
   const [leaders, setLeaders] = useState<Record<string, string>>(departmentLeaders);
   const [activeDept, setActiveDept] = useState<string | null>(null);
+  const [addingDept, setAddingDept] = useState<string | null>(null);
   const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -1425,6 +1426,7 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
     setLeaders(prev => ({ ...prev, [dept]: newListStr }));
     setSearchTerms(prev => ({ ...prev, [dept]: '' }));
     setActiveDept(null);
+    setAddingDept(null);
   };
 
   const handleRemoveLeader = (dept: string, memberName: string) => {
@@ -1469,7 +1471,7 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
 
         <div className="p-8 space-y-5 max-h-[65vh] overflow-y-auto custom-scrollbar">
           <p className={cn("text-xs uppercase tracking-wider font-semibold", isDarkMode ? "text-slate-400" : "text-slate-500")}>
-            Adicione ou remova os líderes responsáveis por cada departamento da congregação:
+            Gerencie os líderes de cada departamento. Clique em '+' para adicionar novos líderes:
           </p>
           
           <div className="space-y-4">
@@ -1482,9 +1484,24 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
               return (
                 <div key={dept} className={cn("p-4 rounded-xl border space-y-2.5", isDarkMode ? "bg-slate-800/40 border-white/5" : "bg-slate-50 border-slate-200")}>
                   <div className="flex items-center justify-between">
-                    <label className={cn("text-xs font-bold uppercase tracking-wider", isDarkMode ? "text-sky-400" : "text-sky-600")}>
-                      {dept}
-                    </label>
+                    <div className="flex items-center gap-3">
+                      <label className={cn("text-xs font-bold uppercase tracking-wider", isDarkMode ? "text-sky-400" : "text-sky-600")}>
+                        {dept}
+                      </label>
+                      {addingDept !== dept && (
+                        <button
+                          type="button"
+                          onClick={() => { setAddingDept(dept); setActiveDept(dept); setSearchTerms(prev => ({ ...prev, [dept]: '' })); }}
+                          className={cn(
+                            "w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold transition-all cursor-pointer shadow-sm hover:scale-105",
+                            isDarkMode ? "bg-sky-500/20 border-sky-500/40 text-sky-300 hover:bg-sky-500/30" : "bg-sky-100 border-sky-300 text-sky-700 hover:bg-sky-200"
+                          )}
+                          title="Adicionar líder"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                     <span className="text-[10px] text-slate-400 uppercase font-semibold">{currentList.length} líder(es)</span>
                   </div>
 
@@ -1516,42 +1533,61 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
                     </div>
                   )}
 
-                  {/* Search / Add Input */}
-                  <div className="relative">
-                    <input 
-                      type="text"
-                      value={searchTerms[dept] || ''}
-                      onChange={(e) => handleSearchChange(dept, e.target.value)}
-                      onFocus={() => setActiveDept(dept)}
-                      placeholder="Digite o nome do irmão(ã) para adicionar..."
-                      className={cn(
-                        "w-full border rounded-xl py-2 px-3 text-xs font-medium focus:outline-none focus:ring-2",
-                        isDarkMode ? "bg-slate-900 border-white/5 text-white focus:ring-sky-500/20" : "bg-white border-slate-200 text-slate-800 focus:ring-sky-500/10"
-                      )}
-                    />
-                    {activeDept === dept && suggestions.length > 0 && (
-                      <div className={cn(
-                        "absolute z-50 left-0 right-0 mt-1 max-h-40 overflow-y-auto rounded-xl border shadow-xl p-1",
-                        isDarkMode ? "bg-[#0f172a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
-                      )}>
-                        <div className="text-[9px] uppercase font-bold text-slate-400 px-2 py-1">Clique para adicionar:</div>
-                        {suggestions.map(m => (
-                          <button
-                            key={m.id}
-                            type="button"
-                            onMouseDown={() => handleAddLeader(dept, m.name)}
+                  {/* Search / Add Input (Collapsible) */}
+                  <AnimatePresence>
+                    {addingDept === dept && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="relative pt-1"
+                      >
+                        <div className="flex gap-2 items-center">
+                          <input 
+                            type="text"
+                            autoFocus
+                            value={searchTerms[dept] || ''}
+                            onChange={(e) => handleSearchChange(dept, e.target.value)}
+                            onBlur={() => setTimeout(() => { setAddingDept(null); setActiveDept(null); }, 300)}
+                            placeholder="Digite o nome para buscar e adicionar..."
                             className={cn(
-                              "w-full text-left px-3 py-2 text-xs rounded-lg transition-colors flex items-center justify-between cursor-pointer",
-                              isDarkMode ? "hover:bg-sky-500/20 text-sky-300" : "hover:bg-sky-50 text-sky-700"
+                              "w-full border rounded-xl py-2 px-3 text-xs font-medium focus:outline-none focus:ring-2",
+                              isDarkMode ? "bg-slate-900 border-white/5 text-white focus:ring-sky-500/20" : "bg-white border-slate-200 text-slate-800 focus:ring-sky-500/10"
                             )}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setAddingDept(null)}
+                            className={cn("px-3 py-2 text-xs font-bold rounded-xl border cursor-pointer", isDarkMode ? "bg-slate-800 border-white/10 text-slate-400 hover:bg-slate-700" : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200")}
                           >
-                            <span className="font-bold">{m.name}</span>
-                            <span className="text-[10px] text-slate-400">{m.departments.join(', ')}</span>
+                            Fechar
                           </button>
-                        ))}
-                      </div>
+                        </div>
+                        {suggestions.length > 0 && (
+                          <div className={cn(
+                            "absolute z-50 left-0 right-0 mt-1 max-h-40 overflow-y-auto rounded-xl border shadow-xl p-1",
+                            isDarkMode ? "bg-[#0f172a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
+                          )}>
+                            <div className="text-[9px] uppercase font-bold text-slate-400 px-2 py-1">Clique para selecionar:</div>
+                            {suggestions.map(m => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onMouseDown={() => handleAddLeader(dept, m.name)}
+                                className={cn(
+                                  "w-full text-left px-3 py-2 text-xs rounded-lg transition-colors flex items-center justify-between cursor-pointer",
+                                  isDarkMode ? "hover:bg-sky-500/20 text-sky-300" : "hover:bg-sky-50 text-sky-700"
+                                )}
+                              >
+                                <span className="font-bold">{m.name}</span>
+                                <span className="text-[10px] text-slate-400">{m.departments.join(', ')}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </motion.div>
                     )}
-                  </div>
+                  </AnimatePresence>
                 </div>
               );
             })}
@@ -1561,7 +1597,7 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
             <button 
               onClick={onClose}
               className={cn(
-                "flex-1 px-6 py-3 border rounded-xl text-sm font-bold transition-colors",
+                "flex-1 px-6 py-3 border rounded-xl text-sm font-bold transition-colors cursor-pointer",
                 isDarkMode ? "bg-slate-800 border-white/5 text-slate-400 hover:bg-slate-700" : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200"
               )}
             >
@@ -1569,7 +1605,7 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
             </button>
             <button 
               onClick={handleSave}
-              className="flex-1 px-6 py-3 bg-sky-500 rounded-xl text-sm font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors"
+              className="flex-1 px-6 py-3 bg-sky-500 rounded-xl text-sm font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors cursor-pointer"
             >
               Salvar Alterações
             </button>
