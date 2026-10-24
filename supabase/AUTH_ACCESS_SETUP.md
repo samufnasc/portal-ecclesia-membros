@@ -16,8 +16,9 @@
 1. Faça backup do projeto e confirme que tem acesso de administrador ao Supabase.
 2. Publique a Edge Function admin-manage-user a partir de supabase/functions/admin-manage-user/index.ts.
 3. Confirme nas secrets da Edge Function que existem SUPABASE_URL, SUPABASE_ANON_KEY e SUPABASE_SERVICE_ROLE_KEY. A chave de serviço deve permanecer somente no ambiente de servidor; nunca a coloque em variáveis VITE_* nem no frontend.
-4. Antes de aplicar a migração de segurança, crie a primeira conta de administrador em **Authentication → Users** com o e-mail que será usado para administrar o portal.
-5. Execute o bloco de bootstrap abaixo substituindo ADMIN_EMAIL_AQUI pelo e-mail exato da conta criada no passo anterior:
+4. Aplique primeiro a migração 20261024_member_private_details.sql, que cria user_profiles e as tabelas auxiliares. Não aplique ainda a migração de segurança 20261025_auth_managed_access.sql.
+5. Crie a primeira conta de administrador em **Authentication → Users** com o e-mail que será usado para administrar o portal.
+6. Execute o bloco de bootstrap abaixo substituindo ADMIN_EMAIL_AQUI pelo e-mail exato da conta criada no passo anterior:
 
 ```sql
 insert into public.user_profiles (user_id, display_name, email, role, is_active)
@@ -38,8 +39,9 @@ Confirme que uma linha foi criada/atualizada em public.user_profiles para essa c
 
 As migrações devem ser aplicadas na ordem:
 
-1. 20261024_member_private_details.sql
-2. 20261025_auth_managed_access.sql
+1. 20261024_member_private_details.sql — cria as tabelas auxiliares.
+2. Criar o usuário inicial no Authentication → Users e inserir o perfil admin usando o bloco de bootstrap acima.
+3. 20261025_auth_managed_access.sql — restringe as policies da tabela principal.
 
 A segunda migração remove as policies públicas permissivas conhecidas de public.members. A página pública passa a usar public_member_directory e public_department_counts(); o cadastro completo exige uma sessão válida. Não aplique essa migração enquanto a versão do frontend que usa essas rotas não estiver disponível no preview.
 
