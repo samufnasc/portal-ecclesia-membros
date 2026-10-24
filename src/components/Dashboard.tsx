@@ -23,6 +23,16 @@ interface DashboardProps {
 
 // Normalização usada apenas para aplicar o escopo visual do líder.
 // A autorização real precisa ser reforçada pelo Supabase RLS antes da publicação.
+function normalizeAccessUsername(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\\.+|\\.+$/g, '');
+}
+
 function normalizeAccessName(value: string): string {
   return value
     .normalize('NFD')
@@ -128,15 +138,20 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       setLoginError('Supabase não está configurado neste ambiente.');
       return;
     }
-    const email = loginUsername.trim().toLowerCase();
+    const username = normalizeAccessUsername(loginUsername);
+    const email = `${username}@portal-ecclesia.invalid`;
     const password = loginPassword;
+    if (!username) {
+      setLoginError('Digite seu nome de usuário.');
+      return;
+    }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data.user) {
       setLoginError('Não foi possível entrar. Confira seu e-mail e senha.');
       return;
     }
     try {
-      await applyAuthenticatedProfile(data.user.id, email);
+      await applyAuthenticatedProfile(data.user.id, loginUsername.trim());
       setIsLoginModalOpen(false);
       setLoginUsername('');
       setLoginPassword('');
@@ -1477,13 +1492,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1 mb-1 block">
-                    E-mail de acesso
+                    Nome de usuário
                   </label>
                   <input
-                    type="email"
+                    type="text"
+                    autoComplete="username"
                     value={loginUsername}
                     onChange={(e) => setLoginUsername(e.target.value)}
-                    placeholder="seu.email@exemplo.com"
+                    placeholder="Ex.: joao.silva"
                     required
                     className={cn(
                       "w-full px-4 py-3 rounded-xl border text-sm outline-none focus:ring-2",
