@@ -158,6 +158,9 @@ Deno.serve(async (req) => {
     if (!displayName || !validRoles.includes(role ?? "")) {
       return json({ error: "Informe nome e perfil válidos." }, 400);
     }
+    if (userId === authData.user.id && role !== "admin") {
+      return json({ error: "Não é permitido remover o perfil de administrador da própria conta." }, 400);
+    }
     if (role === "leader" && departments.length === 0) {
       return json({ error: "Associe pelo menos um departamento ao líder." }, 400);
     }
