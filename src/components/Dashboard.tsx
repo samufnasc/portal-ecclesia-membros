@@ -175,6 +175,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     if (supabase) await supabase.auth.signOut();
     setCurrentUser({ name: 'Visitante', role: 'visitor' });
     setAuthenticatedDepartments([]);
+    setSearchTerm('');
+    setSelectedDepts([]);
+    setSelectedMonth(null);
+    setLeadershipFilter('all');
   };
 
   const checkPermissionAndExecute = (action: () => void) => {
@@ -894,7 +898,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                 Modo Local
               </div>
-            ) : allMembers.length === membersData.length && allMembers[0]?.name === membersData[0]?.name && (
+            ) : currentUser.role === 'admin' && allMembers.length === membersData.length && allMembers[0]?.name === membersData[0]?.name && (
               <button 
                 onClick={handleSyncData}
                 disabled={isSyncing}
@@ -1038,6 +1042,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                           dataKey="value" 
                           radius={[0, 4, 4, 0]}
                           onClick={(data: any) => {
+                            if (currentUser.role === 'visitor') return;
                             const name = data?.name;
                             if (name && typeof name === 'string') {
                               setSelectedDepts((prev: string[]) => 
@@ -1050,7 +1055,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               }
                             }
                           }}
-                          className="cursor-pointer transition-all duration-300"
+                          className={cn("transition-all duration-300", currentUser.role === 'visitor' ? "cursor-default" : "cursor-pointer")}
                         >
                           {deptData.map((entry, index) => (
                             <Cell 
