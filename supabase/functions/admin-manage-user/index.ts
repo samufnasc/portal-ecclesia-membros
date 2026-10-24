@@ -13,6 +13,18 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function normalizeUsername(value: string) {
+  return value.trim().toLowerCase().normalize("NFD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\\.+|\\.+$/g, "");
+}
+
+function internalLoginEmail(displayName: string) {
+  const username = normalizeUsername(displayName);
+  return username ? `${username}@portal-ecclesia.invalid` : "";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método não permitido." }, 405);
@@ -50,7 +62,6 @@ Deno.serve(async (req) => {
   let body: {
     action?: string;
     userId?: string;
-    email?: string;
     password?: string;
     displayName?: string;
     role?: "admin" | "pastor" | "leader";
@@ -69,21 +80,25 @@ Deno.serve(async (req) => {
     : [];
 
   if (action === "create") {
-    const email = body.email?.trim().toLowerCase();
     const password = body.password ?? "";
     const displayName = body.displayName?.trim() ?? "";
-    if (!email || !displayName || password.length < 10 || !validRoles.includes(body.role ?? "")) {
-      return json({ error: "Informe nome, e-mail, perfil e uma senha com pelo menos 10 caracteres." }, 400);
+    const email = internalLoginEmail(displayName);
+    if (!email || !displayName || password.length < 7 || !validRoles.includes(body.role ?? "")) {
+      return json({ error: "Informe um nome válido, perfil e uma senha com pelo menos 7 caracteres." }, 400);
     }
     if (body.role === "leader" && departments.length === 0) {
       return json({ error: "Associe pelo menos um departamento ao líder." }, 400);
     }
+    const { data: existingProfile, error: lookupError } = await adminClient
+      .from("user_profiles").select("user_id").eq("email", email).maybeSingle();
+    if (lookupError) return json({ error: "Não foi possível verificar se esse nome de usuário já existe." }, 500);
+    if (existingProfile) return json({ error: "Esse nome já está sendo usado como acesso. Escolha um nome de exibição diferente." }, 409);
 
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { display_name: displayName },
+      user_metadata: { display_name: displayName, username: normalizeUsername(displayName) },
     });
     if (createError || !created.user) {
       return json({ error: createError?.message ?? "Não foi possível criar a conta." }, 400);
@@ -153,11 +168,15 @@ Deno.serve(async (req) => {
     }
 
     const displayName = body.displayName?.trim();
-    const email = body.email?.trim().toLowerCase();
+    const email = internalLoginEmail(displayName ?? "");
     const role = body.role;
-    if (!displayName || !validRoles.includes(role ?? "")) {
+    if (!displayName || !email || !validRoles.includes(role ?? "")) {
       return json({ error: "Informe nome e perfil válidos." }, 400);
     }
+    const { data: existingProfile, error: lookupError } = await adminClient
+      .from("user_profiles").select("user_id").eq("email", email).neq("user_id", userId).maybeSingle();
+    if (lookupError) return json({ error: "Não foi possível verificar se esse nome de usuário já existe." }, 500);
+    if (existingProfile) return json({ error: "Esse nome de usuário já pertence a outra conta." }, 409);
     if (userId === authData.user.id && role !== "admin") {
       return json({ error: "Não é permitido remover o perfil de administrador da própria conta." }, 400);
     }
@@ -167,13 +186,13 @@ Deno.serve(async (req) => {
 
     const { error: profileUpdateError } = await adminClient
       .from("user_profiles")
-      .update({ display_name: displayName, ...(email ? { email } : {}), role, is_active: true, updated_at: new Date().toISOString() })
+      .update({ display_name: displayName, email, role, updated_at: new Date().toISOString() })
       .eq("user_id", userId);
     if (profileUpdateError) return json({ error: profileUpdateError.message }, 400);
-    if (email) {
-      const { error: authEmailError } = await adminClient.auth.admin.updateUserById(userId, { email, email_confirm: true });
-      if (authEmailError) return json({ error: "Perfil atualizado, mas o e-mail de autenticação não foi atualizado." }, 500);
-    }
+    const { error: authEmailError } = await adminClient.auth.admin.updateUserById(userId, {
+      email, email_confirm: true, user_metadata: { display_name: displayName, username: normalizeUsername(displayName) },
+    });
+    if (authEmailError) return json({ error: "Perfil atualizado, mas o nome de usuário de autenticação não foi atualizado." }, 500);
 
     const { error: deleteDepartmentsError } = await adminClient
       .from("department_leaders")
