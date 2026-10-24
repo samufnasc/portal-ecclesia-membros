@@ -25,10 +25,10 @@ interface DashboardProps {
 function normalizeAccessName(value: string): string {
   return value
     .normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/^(pr\\.?|pra\\.?|pastor|pastora|missionaria|missionario|diacono|diaconisa|obreiro|obreira|irmao|irma)\\s+/i, '')
-    .replace(/\\s+/g, ' ')
+    .replace(/^(pr\.?|pra\.?|pastor|pastora|missionaria|missionario|diacono|diaconisa|obreiro|obreira|irmao|irma)\s+/i, '')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
