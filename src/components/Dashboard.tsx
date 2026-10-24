@@ -1289,8 +1289,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             </div>
           </div>
 
-          {/* Full member directory is restricted to authenticated profiles. */}
-          {currentUser.role !== 'visitor' && (
+          {/* Diretório público: nome e aniversário; campos administrativos somente após login. */}
           <div className={cn("card-sleek !p-0 overflow-hidden !shadow-none", !isDarkMode && "bg-white border-slate-200")}>
             <div className={cn("p-6 border-b flex flex-col md:flex-row md:items-center justify-between gap-4", isDarkMode ? "border-white/5" : "border-slate-100")}>
               <h3 className={cn("text-lg font-bold", isDarkMode ? "text-white" : "text-slate-800")}>Relatório Digital - Mensageiros da Fé</h3>
@@ -1350,7 +1349,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                             </span>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        {currentUser.role !== 'visitor' && <td className="px-6 py-4">
                           {member.isLeadership ? (
                             <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase border bg-amber-500/10 text-amber-500 border-amber-500/20">
                               Liderança
@@ -1363,8 +1362,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               Congregação
                             </span>
                           )}
-                        </td>
-                        <td className="px-6 py-4">
+                        </td>}
+                        {currentUser.role !== 'visitor' && <td className="px-6 py-4">
                           <div className="flex flex-wrap gap-1">
                             {member.departments.map((dept, idx) => (
                               <span key={idx} className={cn(
@@ -1375,7 +1374,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               </span>
                             ))}
                           </div>
-                        </td>
+                        </td>}
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-between gap-1.5">
                             <div className="flex items-center gap-1.5">
@@ -1384,7 +1383,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                                 {member.birthday}
                               </span>
                             </div>
-                            <div className={cn(
+                            {currentUser.role !== 'visitor' && <div className={cn(
                               "flex items-center gap-1 transition-opacity",
                               "lg:opacity-0 lg:group-hover:opacity-100 opacity-100"
                             )}>
@@ -1409,7 +1408,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                                   <Trash2 className="w-3 h-3" />
                                 </button>
                               )}
-                            </div>
+                            </div>}
                           </div>
                         </td>
                       </motion.tr>
@@ -1419,7 +1418,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               </table>
             </div>
           </div>
-          )}
 
           {/* Footer Signature - Creative & Discreet */}
           <footer className="pt-12 pb-8 opacity-20 hover:opacity-60 transition-opacity duration-700">
