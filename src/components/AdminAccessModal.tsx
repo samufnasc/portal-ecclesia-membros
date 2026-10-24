@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { DEPARTMENTS } from "../data/members";
 import { cn } from "../lib/utils";
@@ -100,7 +100,7 @@ export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: 
     return data;
   }
 
-  async function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
     setLoading(true);
