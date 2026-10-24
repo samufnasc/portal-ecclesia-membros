@@ -141,6 +141,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       setLoginUsername('');
       setLoginPassword('');
     } catch (err) {
+      await supabase.auth.signOut();
+      setCurrentUser({ name: 'Visitante', role: 'visitor' });
+      setAuthenticatedDepartments([]);
       setLoginError(err instanceof Error ? err.message : 'Não foi possível validar o perfil.');
     }
   };
@@ -1472,7 +1475,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     E-mail de acesso
                   </label>
                   <input
-                    type="text"
+                    type="email"
                     value={loginUsername}
                     onChange={(e) => setLoginUsername(e.target.value)}
                     placeholder="seu.email@exemplo.com"
