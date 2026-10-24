@@ -15,9 +15,9 @@ function json(body: unknown, status = 200) {
 
 function normalizeUsername(value: string) {
   return value.trim().toLowerCase().normalize("NFD")
-    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, ".")
-    .replace(/^\\.+|\\.+$/g, "");
+    .replace(/^\.+|\.+$/g, "");
 }
 
 function internalLoginEmail(displayName: string) {
@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
 
     if (action === "reset_password") {
       const password = body.password ?? "";
-      if (password.length < 10) return json({ error: "A nova senha precisa ter pelo menos 10 caracteres." }, 400);
+      if (password.length < 7) return json({ error: "A nova senha precisa ter pelo menos 7 caracteres." }, 400);
       const { error } = await adminClient.auth.admin.updateUserById(userId, { password });
       if (error) return json({ error: error.message }, 400);
       return json({ userId, passwordUpdated: true });
