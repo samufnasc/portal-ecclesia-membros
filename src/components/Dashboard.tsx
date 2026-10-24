@@ -1391,6 +1391,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             departmentLeaders={departmentLeaders}
             onSave={setDepartmentLeaders}
             isDarkMode={isDarkMode}
+            allMembers={allMembers}
           />
         )}
       </AnimatePresence>
@@ -1398,8 +1399,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   );
 }
 
-function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMode }: { isOpen: boolean, onClose: () => void, departmentLeaders: Record<string, string>, onSave: (l: Record<string, string>) => void, isDarkMode: boolean }) {
+function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMode, allMembers }: { isOpen: boolean, onClose: () => void, departmentLeaders: Record<string, string>, onSave: (l: Record<string, string>) => void, isDarkMode: boolean, allMembers: Member[] }) {
   const [leaders, setLeaders] = useState<Record<string, string>>(departmentLeaders);
+  const [activeDept, setActiveDept] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     setLeaders(departmentLeaders);
@@ -1409,6 +1412,16 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
 
   const handleChange = (dept: string, val: string) => {
     setLeaders(prev => ({ ...prev, [dept]: val }));
+    setActiveDept(dept);
+    setSearchTerm(val);
+  };
+
+  const handleSelectMember = (dept: string, memberName: string) => {
+    const current = leaders[dept] || '';
+    const newVal = current ? `${current}, ${memberName}` : memberName;
+    setLeaders(prev => ({ ...prev, [dept]: newVal }));
+    setActiveDept(null);
+    setSearchTerm('');
   };
 
   const handleSave = () => {
@@ -1446,27 +1459,58 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
 
         <div className="p-8 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
           <p className={cn("text-xs uppercase tracking-wider font-semibold", isDarkMode ? "text-slate-400" : "text-slate-500")}>
-            Defina o líder responsável por cada departamento da congregação:
+            Defina o líder responsável por cada departamento (digite para buscar membros):
           </p>
           
           <div className="space-y-3">
-            {DEPARTMENTS.map(dept => (
-              <div key={dept} className="flex flex-col md:flex-row md:items-center gap-2">
-                <label className={cn("w-48 text-xs font-bold uppercase tracking-wider", isDarkMode ? "text-sky-400" : "text-sky-600")}>
-                  {dept}
-                </label>
-                <input 
-                  type="text"
-                  value={leaders[dept] || ''}
-                  onChange={(e) => handleChange(dept, e.target.value)}
-                  placeholder="Nome do líder responsável"
-                  className={cn(
-                    "flex-1 border rounded-xl py-2 px-3 text-xs font-medium focus:outline-none focus:ring-2",
-                    isDarkMode ? "bg-slate-800/80 border-white/5 text-white focus:ring-sky-500/20" : "bg-slate-50 border-slate-200 text-slate-800 focus:ring-sky-500/10"
-                  )}
-                />
-              </div>
-            ))}
+            {DEPARTMENTS.map(dept => {
+              const query = (activeDept === dept ? searchTerm : '').toLowerCase();
+              const suggestions = query.length > 0 ? allMembers.filter(m => m.name.toLowerCase().includes(query)) : [];
+
+              return (
+                <div key={dept} className="flex flex-col md:flex-row md:items-center gap-2 relative">
+                  <label className={cn("w-48 text-xs font-bold uppercase tracking-wider", isDarkMode ? "text-sky-400" : "text-sky-600")}>
+                    {dept}
+                  </label>
+                  <div className="flex-1 relative">
+                    <input 
+                      type="text"
+                      value={leaders[dept] || ''}
+                      onChange={(e) => handleChange(dept, e.target.value)}
+                      onFocus={() => { setActiveDept(dept); setSearchTerm(''); }}
+                      onBlur={() => setTimeout(() => setActiveDept(null), 200)}
+                      placeholder="Digite o nome do líder..."
+                      className={cn(
+                        "w-full border rounded-xl py-2 px-3 text-xs font-medium focus:outline-none focus:ring-2",
+                        isDarkMode ? "bg-slate-800/80 border-white/5 text-white focus:ring-sky-500/20" : "bg-slate-50 border-slate-200 text-slate-800 focus:ring-sky-500/10"
+                      )}
+                    />
+                    {activeDept === dept && suggestions.length > 0 && (
+                      <div className={cn(
+                        "absolute z-50 left-0 right-0 mt-1 max-h-40 overflow-y-auto rounded-xl border shadow-xl p-1",
+                        isDarkMode ? "bg-[#0f172a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
+                      )}>
+                        <div className="text-[9px] uppercase font-bold text-slate-400 px-2 py-1">Clique para selecionar:</div>
+                        {suggestions.map(m => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onMouseDown={() => handleSelectMember(dept, m.name)}
+                            className={cn(
+                              "w-full text-left px-3 py-2 text-xs rounded-lg transition-colors flex items-center justify-between cursor-pointer",
+                              isDarkMode ? "hover:bg-sky-500/20 text-sky-300" : "hover:bg-sky-50 text-sky-700"
+                            )}
+                          >
+                            <span className="font-bold">{m.name}</span>
+                            <span className="text-[10px] text-slate-400">{m.departments.join(', ')}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="flex gap-3 pt-6 border-t border-white/5">
