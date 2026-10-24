@@ -18,30 +18,42 @@
 3. Confirme nas secrets da Edge Function que existem SUPABASE_URL, SUPABASE_ANON_KEY e SUPABASE_SERVICE_ROLE_KEY. A chave de serviço deve permanecer somente no ambiente de servidor; nunca a coloque em variáveis VITE_* nem no frontend.
 4. Aplique primeiro a migração 20261024_member_private_details.sql, que cria user_profiles e as tabelas auxiliares. Não aplique ainda a migração de segurança 20261025_auth_managed_access.sql.
 5. Crie a primeira conta de administrador em **Authentication → Users** com o e-mail que será usado para administrar o portal.
-6. Execute o bloco de bootstrap abaixo substituindo ADMIN_EMAIL_AQUI pelo e-mail exato da conta criada no passo anterior:
+6. Execute o bootstrap abaixo substituindo ADMIN_EMAIL_AQUI pelo e-mail exato da conta criada. Nesta etapa, a primeira migração ainda não possui as colunas email/is_active:
 
 ```sql
-insert into public.user_profiles (user_id, display_name, email, role, is_active)
-select id, 'Administrador', email, 'admin', true
+insert into public.user_profiles (user_id, display_name, role)
+select id, 'Administrador', 'admin'
 from auth.users
 where lower(email) = lower('ADMIN_EMAIL_AQUI')
 on conflict (user_id) do update
 set display_name = excluded.display_name,
-    email = excluded.email,
     role = 'admin',
-    is_active = true,
     updated_at = now();
+```
+
+7. Aplique a migração 20261025_auth_managed_access.sql.
+8. Sincronize o e-mail do primeiro administrador para a nova coluna e confirme que a conta está ativa:
+
+```sql
+update public.user_profiles p
+set email = u.email,
+    is_active = true,
+    updated_at = now()
+from auth.users u
+where p.user_id = u.id
+  and lower(u.email) = lower('ADMIN_EMAIL_AQUI');
 ```
 
 Confirme que uma linha foi criada/atualizada em public.user_profiles para essa conta.
 
 ## Ordem de migração
 
-As migrações devem ser aplicadas na ordem:
+A ordem segura é:
 
 1. 20261024_member_private_details.sql — cria as tabelas auxiliares.
-2. Criar o usuário inicial no Authentication → Users e inserir o perfil admin usando o bloco de bootstrap acima.
-3. 20261025_auth_managed_access.sql — restringe as policies da tabela principal.
+2. Criar o usuário inicial no Authentication → Users e inserir o perfil admin usando o primeiro bloco de bootstrap acima.
+3. 20261025_auth_managed_access.sql — adiciona os campos de gestão e restringe as policies da tabela principal.
+4. Sincronizar o e-mail do admin com o segundo bloco de SQL.
 
 A segunda migração remove as policies públicas permissivas conhecidas de public.members. A página pública passa a usar public_member_directory e public_department_counts(); o cadastro completo exige uma sessão válida. Não aplique essa migração enquanto a versão do frontend que usa essas rotas não estiver disponível no preview.
 
