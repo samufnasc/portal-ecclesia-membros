@@ -1296,16 +1296,18 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               "flex items-center gap-1 transition-opacity",
                               "lg:opacity-0 lg:group-hover:opacity-100 opacity-100"
                             )}>
-                              <button 
-                                onClick={() => checkPermissionAndExecute(() => {
-                                  setEditingMember(member);
-                                  setIsMemberModalOpen(true);
-                                })}
-                                className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-sky-500/10 text-sky-400" : "hover:bg-slate-200 text-sky-600")}
-                                title="Editar"
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </button>
+                              {currentUser.role !== 'leader' && (
+                                <button 
+                                  onClick={() => checkPermissionAndExecute(() => {
+                                    setEditingMember(member);
+                                    setIsMemberModalOpen(true);
+                                  })}
+                                  className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-sky-500/10 text-sky-400" : "hover:bg-slate-200 text-sky-600")}
+                                  title="Editar"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                </button>
+                              )}
                               {currentUser.role === 'admin' && (
                                 <button 
                                   onClick={() => handleDeleteMember(member.id)}
