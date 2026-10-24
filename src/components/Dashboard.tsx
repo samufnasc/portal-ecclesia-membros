@@ -39,6 +39,7 @@ function parseConfiguredLeaderNames(value: string): string[] {
 
 export default function Dashboard({ onLogout }: DashboardProps) {
   const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [publicDeptCounts, setPublicDeptCounts] = useState<Array<{ name: string; value: number }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -229,12 +230,35 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
 
     try {
-      // 1. Fetch Members
-      const { data: members, error: mError } = await supabase
-        .from('members')
-        .select('*')
-        .order('name');
-      
+      // Visitantes consultam somente a view pública com nome e aniversário.
+      // Perfis autenticados consultam members, cujo RLS deve limitar o escopo.
+      let members: any[] | null = null;
+      let mError: any = null;
+      if (currentUser.role === 'visitor') {
+        const publicResult = await supabase
+          .from('public_member_directory')
+          .select('id, name, birthday, month, day')
+          .order('name');
+        members = publicResult.data;
+        mError = publicResult.error;
+        if (mError?.code === 'PGRST205') {
+          // Compatibilidade temporária antes da nova migração do Supabase.
+          const legacyResult = await supabase.from('members').select('*').order('name');
+          members = legacyResult.data;
+          mError = legacyResult.error;
+        }
+        const { data: departmentCounts, error: countsError } = await supabase.rpc('public_department_counts');
+        if (!countsError && departmentCounts) {
+          setPublicDeptCounts(departmentCounts.map((row: any) => ({ name: row.department, value: Number(row.member_count) })));
+        } else {
+          setPublicDeptCounts([]);
+        }
+      } else {
+        const memberResult = await supabase.from('members').select('*').order('name');
+        members = memberResult.data;
+        mError = memberResult.error;
+      }
+
       if (mError && mError.code !== 'PGRST205') throw mError;
 
       // 2. Fetch Settings (Logo and Name)
@@ -284,8 +308,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    void fetchData();
+  }, [currentUser.role]);
 
   const handleSaveMember = async (member: Member) => {
     if (isOffline || !supabase) {
@@ -472,6 +496,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   // Data processing for charts - CROSS-FILTERING (Charts shouldn't filter themselves)
   const deptData = useMemo(() => {
     const counts: Record<string, number> = {};
+    if (currentUser.role === 'visitor' && publicDeptCounts.length > 0) {
+      return publicDeptCounts;
+    }
     const allowedDepartments = new Set(leaderDepartments.map(normalizeAccessName));
     // Líderes veem somente seus departamentos; os demais perfis mantêm a visão geral.
     const departmentsForChart = currentUser.role === 'leader'
@@ -497,7 +524,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       name: dept,
       value: counts[dept] || 0
     })).filter(d => d.value > 0);
-  }, [visibleMembersForCurrentUser, currentUser.role, leaderDepartments, searchTerm, selectedMonth, leadershipFilter]);
+  }, [visibleMembersForCurrentUser, currentUser.role, leaderDepartments, publicDeptCounts, searchTerm, selectedMonth, leadershipFilter]);
 
   const monthData = useMemo(() => {
     const counts: Record<string, number> = {};
