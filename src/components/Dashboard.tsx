@@ -1338,8 +1338,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                           <div className="flex items-center gap-3">
                             <div className={cn(
                               "w-8 h-8 rounded-lg border flex items-center justify-center font-bold text-[10px] transition-all",
-                              member.isLeadership 
-                                ? "bg-amber-500/10 border-amber-500/20 text-amber-500" 
+                              currentUser.role !== 'visitor' && member.isLeadership
+                                ? "bg-amber-500/10 border-amber-500/20 text-amber-500"
                                 : isDarkMode ? "bg-slate-800 border-white/5 text-slate-500" : "bg-slate-100 border-slate-200 text-slate-400"
                             )}>
                               {member.name.charAt(0).toUpperCase()}
