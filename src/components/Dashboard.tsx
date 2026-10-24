@@ -206,6 +206,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       if (settings) {
         if (settings.logo_url) setLogoBase64(settings.logo_url);
         if (settings.church_name) setChurchName(settings.church_name);
+        if (settings.department_leaders) {
+          setDepartmentLeaders(settings.department_leaders);
+          localStorage.setItem('portal_dept_leaders', JSON.stringify(settings.department_leaders));
+        }
       }
       
       if (members && members.length > 0) {
@@ -348,6 +352,37 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       alert('Erro ao sincronizar dados. Verifique a tabela no Supabase.');
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleSaveDepartmentLeaders = async (leaders: Record<string, string>) => {
+    setDepartmentLeaders(leaders);
+    localStorage.setItem('portal_dept_leaders', JSON.stringify(leaders));
+
+    if (supabase && !isOffline) {
+      try {
+        const { error } = await supabase
+          .from('settings')
+          .upsert({ 
+            id: 'main', 
+            logo_url: logoBase64, 
+            church_name: churchName,
+            department_leaders: leaders,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'id' });
+
+        if (error) {
+          console.error('Erro ao salvar líderes no Supabase:', error);
+          alert('Erro ao salvar líderes na nuvem. Eles foram salvos localmente neste navegador.');
+        } else {
+          alert('Líderes de departamento salvos com sucesso no Supabase e na nuvem!');
+        }
+      } catch (err) {
+        console.error('Exceção ao salvar líderes:', err);
+        alert('Líderes salvos localmente.');
+      }
+    } else {
+      alert('Líderes de departamento salvos com sucesso (Modo Local)!');
     }
   };
 
@@ -1438,8 +1473,6 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
 
   const handleSave = () => {
     onSave(leaders);
-    localStorage.setItem('portal_dept_leaders', JSON.stringify(leaders));
-    alert('Líderes de departamento atualizados com sucesso!');
     onClose();
   };
 
