@@ -108,11 +108,14 @@ export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: 
     try {
       if (role === "leader" && departments.length === 0) throw new Error("Selecione pelo menos um departamento para o líder.");
       if (selectedUser) {
-        await callAdminFunction({ action: "update", userId: selectedUser.user_id, displayName, email, role, departments });
-        if (password.trim()) await callAdminFunction({ action: "reset_password", userId: selectedUser.user_id, password });
+        await callAdminFunction({ action: "update", userId: selectedUser.user_id, displayName, role, departments });
+        if (password.length > 0) {
+          if (password.length < 7) throw new Error("A senha deve ter pelo menos 7 caracteres.");
+          await callAdminFunction({ action: "reset_password", userId: selectedUser.user_id, password });
+        }
       } else {
-        if (!password.trim()) throw new Error("Defina uma senha inicial para a conta.");
-        await callAdminFunction({ action: "create", displayName, email, password, role, departments });
+        if (password.length < 7) throw new Error("A senha deve ter pelo menos 7 caracteres.");
+        await callAdminFunction({ action: "create", displayName, password, role, departments });
       }
       setPassword("");
       await loadUsers();
@@ -174,7 +177,7 @@ export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: 
                   <div key={user.user_id} className={cn("flex items-start gap-2 rounded-xl border p-3", selectedId === user.user_id ? "border-sky-500/50 bg-sky-500/10" : isDarkMode ? "border-white/5 bg-slate-800/40" : "border-slate-200 bg-slate-50")}>
                     <button type="button" onClick={() => selectUser(user)} className="min-w-0 flex-1 text-left">
                       <span className="block truncate text-sm font-semibold">{user.display_name}</span>
-                      <span className={cn("block truncate text-xs", mutedClass)}>{user.email || "Sem e-mail cadastrado"}</span>
+                      <span className={cn("block truncate text-xs", mutedClass)}>{usernameFromName(user.display_name)}</span>
                       <span className={cn("mt-1 block text-[10px] uppercase tracking-wider", user.is_active ? "text-emerald-500" : "text-rose-500")}>{user.role} · {user.is_active ? "Ativo" : "Bloqueado"}</span>
                       {user.departments.length > 0 && <span className={cn("mt-1 block text-[10px]", mutedClass)}>{user.departments.join(" · ")}</span>}
                     </button>
