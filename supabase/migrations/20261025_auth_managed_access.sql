@@ -29,7 +29,7 @@ $$;
 -- View pública mínima: apenas os campos necessários para aniversariantes.
 -- Não expõe telefone, e-mail, endereço, profissão ou ficha eclesiástica.
 create or replace view public.public_member_directory as
-  select id, name, birthday, month, day
+  select id, name, birthday, month, day, is_leadership
   from public.members;
 
 grant select on public.public_member_directory to anon, authenticated;
