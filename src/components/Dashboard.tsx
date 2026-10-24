@@ -15,13 +15,41 @@ import { membersData, MONTHS, DEPARTMENTS } from '../data/members';
 import { Member } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import AdminAccessModal from './AdminAccessModal';
 
 interface DashboardProps {
   onLogout: () => void;
 }
 
+// Normalização usada apenas para aplicar o escopo visual do líder.
+// A autorização real precisa ser reforçada pelo Supabase RLS antes da publicação.
+function normalizeAccessUsername(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+}
+
+function normalizeAccessName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/^(pr\.?|pra\.?|pastor|pastora|missionaria|missionario|diacono|diaconisa|obreiro|obreira|irmao|irma)\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseConfiguredLeaderNames(value: string): string[] {
+  return value.split(/[,/;]+/).map(name => normalizeAccessName(name)).filter(Boolean);
+}
+
 export default function Dashboard({ onLogout }: DashboardProps) {
   const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [publicDeptCounts, setPublicDeptCounts] = useState<Array<{ name: string; value: number }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -38,6 +66,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isDeptLeadersModalOpen, setIsDeptLeadersModalOpen] = useState(false);
+  const [isAccessManagementModalOpen, setIsAccessManagementModalOpen] = useState(false);
+  const [authenticatedDepartments, setAuthenticatedDepartments] = useState<string[]>([]);
   
   // Department Leaders configuration state (Admin configurable)
   const [departmentLeaders, setDepartmentLeaders] = useState<Record<string, string>>(() => {
@@ -71,62 +101,103 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [isSyncing, setIsSyncing] = useState(false);
 
   // User Session & Permissions
-  const [currentUser, setCurrentUser] = useState<{ name: string; role: 'admin' | 'leader' | 'visitor' }>(() => {
-    const saved = localStorage.getItem('portal_user_session');
-    return saved ? JSON.parse(saved) : { name: 'Visitante', role: 'visitor' };
-  });
+  const [currentUser, setCurrentUser] = useState<{ name: string; role: 'admin' | 'pastor' | 'leader' | 'visitor' }>({ name: 'Visitante', role: 'visitor' });
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError('');
-    const u = loginUsername.trim().toLowerCase();
-    const p = loginPassword.trim();
-
-    if (u === 'admin' && p === 'Jesussalva') {
-      const user = { name: 'Administrador', role: 'admin' as const };
-      setCurrentUser(user);
-      localStorage.setItem('portal_user_session', JSON.stringify(user));
-      setIsLoginModalOpen(false);
-      setLoginUsername('');
-      setLoginPassword('');
-      return;
+  const applyAuthenticatedProfile = async (userId: string, fallbackName: string) => {
+    if (!supabase) throw new Error('Supabase não está configurado neste ambiente.');
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('display_name, role, is_active')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (profileError || !profile || profile.is_active === false) {
+      await supabase.auth.signOut();
+      throw new Error('Esta conta não está autorizada no Portal Ecclesia. Solicite ao administrador que confira seu acesso.');
     }
-
-    const foundLeader = allMembers.find(m => {
-      if (!m.isLeadership) return false;
-      const nameLower = m.name.toLowerCase();
-      const cleanName = nameLower.replace(/^(pr\.?|pra\.?|pastor|pastora|missionária|missionario|diácono|diaconisa|obreiro|obreira|irmão|irmã)\s+/i, '');
-      const parts = cleanName.split(/\s+/);
-      const matchFirst = parts[0] === u;
-      const matchFull = nameLower.includes(u);
-      return matchFirst || matchFull;
-    });
-
-    if (foundLeader && p === '1234567') {
-      const user = { name: foundLeader.name, role: 'leader' as const };
-      setCurrentUser(user);
-      localStorage.setItem('portal_user_session', JSON.stringify(user));
-      setIsLoginModalOpen(false);
-      setLoginUsername('');
-      setLoginPassword('');
-      return;
+    if (!['admin', 'pastor', 'leader'].includes(profile.role)) {
+      await supabase.auth.signOut();
+      throw new Error('Perfil de acesso inválido.');
     }
-
-    setLoginError('Credenciais inválidas. Para líderes, use seu primeiro nome e senha (1 a 7).');
+    const { data: links, error: linksError } = await supabase
+      .from('department_leaders')
+      .select('department')
+      .eq('leader_user_id', userId);
+    if (linksError) throw new Error('Não foi possível carregar os departamentos vinculados.');
+    setAuthenticatedDepartments((links ?? []).map((link: any) => link.department));
+    setCurrentUser({ name: profile.display_name || fallbackName, role: profile.role });
   };
 
-  const handleLogout = () => {
-    const visitor = { name: 'Visitante', role: 'visitor' as const };
-    setCurrentUser(visitor);
-    localStorage.removeItem('portal_user_session');
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (!supabase) {
+      setLoginError('Supabase não está configurado neste ambiente.');
+      return;
+    }
+    const username = normalizeAccessUsername(loginUsername);
+    const email = `${username}@portal-ecclesia.invalid`;
+    const password = loginPassword;
+    if (!username) {
+      setLoginError('Digite seu nome de usuário.');
+      return;
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.user) {
+      setLoginError('Não foi possível entrar. Confira seu e-mail e senha.');
+      return;
+    }
+    try {
+      await applyAuthenticatedProfile(data.user.id, loginUsername.trim());
+      setIsLoginModalOpen(false);
+      setLoginUsername('');
+      setLoginPassword('');
+    } catch (err) {
+      await supabase.auth.signOut();
+      setCurrentUser({ name: 'Visitante', role: 'visitor' });
+      setAuthenticatedDepartments([]);
+      setLoginError(err instanceof Error ? err.message : 'Não foi possível validar o perfil.');
+    }
+  };
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void supabase.auth.getSession().then(async ({ data }) => {
+      if (!active || !data.session?.user) return;
+      try {
+        await applyAuthenticatedProfile(data.session.user.id, data.session.user.email || 'Usuário');
+      } catch (err) {
+        console.error('Não foi possível restaurar a sessão do Portal Ecclesia:', err);
+      }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setCurrentUser({ name: 'Visitante', role: 'visitor' });
+        setAuthenticatedDepartments([]);
+      }
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    if (supabase) await supabase.auth.signOut();
+    setCurrentUser({ name: 'Visitante', role: 'visitor' });
+    setAuthenticatedDepartments([]);
+    setSearchTerm('');
+    setSelectedDepts([]);
+    setSelectedMonth(null);
+    setLeadershipFilter('all');
   };
 
   const checkPermissionAndExecute = (action: () => void) => {
-    if (currentUser.role === 'admin' || currentUser.role === 'leader') {
+    if (currentUser.role === 'admin' || currentUser.role === 'pastor' || currentUser.role === 'leader') {
       action();
     } else {
       setIsLoginModalOpen(true);
@@ -181,12 +252,35 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
 
     try {
-      // 1. Fetch Members
-      const { data: members, error: mError } = await supabase
-        .from('members')
-        .select('*')
-        .order('name');
-      
+      // Visitantes consultam somente a view pública com nome e aniversário.
+      // Perfis autenticados consultam members, cujo RLS deve limitar o escopo.
+      let members: any[] | null = null;
+      let mError: any = null;
+      if (currentUser.role === 'visitor') {
+        const publicResult = await supabase
+          .from('public_member_directory')
+          .select('id, name, birthday, month, day, is_leadership')
+          .order('name');
+        members = publicResult.data;
+        mError = publicResult.error;
+        if (mError?.code === 'PGRST205') {
+          // Compatibilidade temporária antes da nova migração do Supabase.
+          const legacyResult = await supabase.from('members').select('*').order('name');
+          members = legacyResult.data;
+          mError = legacyResult.error;
+        }
+        const { data: departmentCounts, error: countsError } = await supabase.rpc('public_department_counts');
+        if (!countsError && departmentCounts) {
+          setPublicDeptCounts(departmentCounts.map((row: any) => ({ name: row.department, value: Number(row.member_count) })));
+        } else {
+          setPublicDeptCounts([]);
+        }
+      } else {
+        const memberResult = await supabase.from('members').select('*').order('name');
+        members = memberResult.data;
+        mError = memberResult.error;
+      }
+
       if (mError && mError.code !== 'PGRST205') throw mError;
 
       // 2. Fetch Settings (Logo and Name)
@@ -212,16 +306,18 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         }
       }
       
-      if (members && members.length > 0) {
+      if (members) {
         const mappedData = members.map(m => ({
           ...m,
-          isLeadership: m.is_leadership,
-          membershipType: m.membership_type
+          departments: Array.isArray(m.departments) ? m.departments : [],
+          isLeadership: Boolean(m.is_leadership ?? m.isLeadership),
+          membershipType: m.membership_type || m.membershipType || 'Batizado'
         }));
         setAllMembers(mappedData);
         setIsOffline(false);
       } else {
-        setAllMembers(membersData);
+        // Use demo data only when the database schema is unavailable, not when it is genuinely empty.
+        setAllMembers(mError?.code === 'PGRST205' ? membersData : []);
         setIsOffline(mError?.code === 'PGRST205');
       }
     } catch (err) {
@@ -234,8 +330,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    void fetchData();
+  }, [currentUser.role]);
 
   const handleSaveMember = async (member: Member) => {
     if (isOffline || !supabase) {
@@ -279,14 +375,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       setEditingMember(null);
     } catch (err) {
       console.error('Error saving member:', err);
-      alert('Erro ao salvar no banco de dados. Salvando localmente para esta sessão.');
-      // Fallback update
-      if (member.id) {
-        setAllMembers((prev: Member[]) => prev.map((m: Member) => m.id === member.id ? member : m));
-      } else {
-        setAllMembers((prev: Member[]) => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
-      }
-      setIsMemberModalOpen(false);
+      alert('Não foi possível salvar o membro no banco de dados. Nenhuma alteração foi confirmada. Verifique a conexão e as permissões e tente novamente.');
+      // Keep the form open so the user can correct the issue or retry; do not imply that the database was updated.
     }
   };
 
@@ -307,7 +397,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       await fetchData();
     } catch (err) {
       console.error('Error deleting member:', err);
-      setAllMembers((prev: Member[]) => prev.filter((m: Member) => m.id !== id));
+      alert('Não foi possível excluir o membro do banco de dados. O cadastro foi mantido; tente novamente após verificar a conexão e as permissões.');
     }
   };
 
@@ -386,9 +476,27 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   };
 
+  // Departamentos associados ao líder atual, conforme configuração do administrador.
+  // Esta filtragem é de interface; não substitui autenticação nem políticas RLS no banco.
+  const leaderDepartments = useMemo(() => {
+    if (currentUser.role !== 'leader') return [];
+    return authenticatedDepartments;
+  }, [currentUser.role, authenticatedDepartments]);
+
+  // A lista operacional do líder contém somente membros vinculados aos departamentos atribuídos.
+  // Os cartões/estatísticas públicas continuam calculados sobre allMembers.
+  const visibleMembersForCurrentUser = useMemo(() => {
+    if (currentUser.role !== 'leader') return allMembers;
+    if (leaderDepartments.length === 0) return [];
+    const allowedDepartments = new Set(leaderDepartments.map(normalizeAccessName));
+    return allMembers.filter(member =>
+      member.departments.some(department => allowedDepartments.has(normalizeAccessName(department)))
+    );
+  }, [allMembers, currentUser.role, leaderDepartments]);
+
   // Filtered members list - SORTED BY BIRTHDAY
   const filteredMembers = useMemo(() => {
-    const filtered = allMembers.filter(m => {
+    const filtered = visibleMembersForCurrentUser.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
       const matchesMonth = !selectedMonth || m.month === selectedMonth;
@@ -405,13 +513,21 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       if (monthIndexA !== monthIndexB) return monthIndexA - monthIndexB;
       return a.day - b.day;
     });
-  }, [allMembers, searchTerm, selectedDepts, selectedMonth, leadershipFilter]);
+  }, [visibleMembersForCurrentUser, searchTerm, selectedDepts, selectedMonth, leadershipFilter]);
 
   // Data processing for charts - CROSS-FILTERING (Charts shouldn't filter themselves)
   const deptData = useMemo(() => {
     const counts: Record<string, number> = {};
+    if (currentUser.role === 'visitor' && publicDeptCounts.length > 0) {
+      return publicDeptCounts;
+    }
+    const allowedDepartments = new Set(leaderDepartments.map(normalizeAccessName));
+    // Líderes veem somente seus departamentos; os demais perfis mantêm a visão geral.
+    const departmentsForChart = currentUser.role === 'leader'
+      ? DEPARTMENTS.filter(dept => allowedDepartments.has(normalizeAccessName(dept)))
+      : DEPARTMENTS;
     // When computing chart data, we ignore its own filter to keep UI stable (Power BI behavior)
-    const dataForDepts = allMembers.filter(m => {
+    const dataForDepts = visibleMembersForCurrentUser.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesMonth = !selectedMonth || m.month === selectedMonth;
       const matchesLeadership = leadershipFilter === 'all' || 
@@ -421,18 +537,20 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
     dataForDepts.forEach(m => {
       m.departments.forEach(dept => {
-        counts[dept] = (counts[dept] || 0) + 1;
+        if (currentUser.role !== 'leader' || allowedDepartments.has(normalizeAccessName(dept))) {
+          counts[dept] = (counts[dept] || 0) + 1;
+        }
       });
     });
-    return DEPARTMENTS.map(dept => ({
+    return departmentsForChart.map(dept => ({
       name: dept,
       value: counts[dept] || 0
     })).filter(d => d.value > 0);
-  }, [allMembers, searchTerm, selectedMonth, leadershipFilter]);
+  }, [visibleMembersForCurrentUser, currentUser.role, leaderDepartments, publicDeptCounts, searchTerm, selectedMonth, leadershipFilter]);
 
   const monthData = useMemo(() => {
     const counts: Record<string, number> = {};
-    const dataForMonths = allMembers.filter(m => {
+    const dataForMonths = visibleMembersForCurrentUser.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
       const matchesLeadership = leadershipFilter === 'all' || 
@@ -447,10 +565,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       name: month,
       value: counts[month] || 0
     }));
-  }, [allMembers, searchTerm, selectedDepts, leadershipFilter]);
+  }, [visibleMembersForCurrentUser, searchTerm, selectedDepts, leadershipFilter]);
 
   const leadershipStats = useMemo(() => {
-    const dataForLeadership = allMembers.filter(m => {
+    const dataForLeadership = visibleMembersForCurrentUser.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
       const matchesMonth = !selectedMonth || m.month === selectedMonth;
@@ -463,7 +581,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       { name: 'Liderança', value: leaders },
       { name: 'Congregação', value: congregation }
     ].filter(s => s.value > 0);
-  }, [allMembers, searchTerm, selectedDepts, selectedMonth]);
+  }, [visibleMembersForCurrentUser, searchTerm, selectedDepts, selectedMonth]);
 
   // Next birthdays logic (Current month remaining, or Next month)
   const upcomingBirthdays = useMemo(() => {
@@ -473,7 +591,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     const currentDay = today.getDate();
 
     // Check current month first
-    const currentMonthRemaining = [...allMembers]
+    const currentMonthRemaining = [...visibleMembersForCurrentUser]
       .filter(m => m.month === currentMonthName && m.day >= currentDay)
       .sort((a, b) => a.day - b.day);
 
@@ -481,13 +599,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       // If none in current month, show next month
       const nextMonthIndex = (currentMonthIndex + 1) % 12;
       const nextMonthName = MONTHS[nextMonthIndex];
-      return [...allMembers]
+      return [...visibleMembersForCurrentUser]
         .filter(m => m.month === nextMonthName)
         .sort((a, b) => a.day - b.day);
     }
 
     return currentMonthRemaining;
-  }, [allMembers]);
+  }, [visibleMembersForCurrentUser]);
 
   const resetFilters = () => {
     setSelectedDepts([]);
@@ -760,6 +878,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <p className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-widest truncate", isDarkMode ? "text-sky-500" : "text-sky-600")}>
                 {churchName}
               </p>
+              {currentUser.role === 'leader' && (
+                <p className={cn("text-[9px] font-semibold truncate max-w-[240px]", isDarkMode ? "text-amber-400" : "text-amber-700")}>
+                  Área de atuação: {leaderDepartments.length > 0 ? leaderDepartments.join(' • ') : 'Nenhum departamento vinculado'}
+                </p>
+              )}
             </div>
           </div>
           
@@ -790,7 +913,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                 Modo Local
               </div>
-            ) : allMembers.length === membersData.length && allMembers[0]?.name === membersData[0]?.name && (
+            ) : currentUser.role === 'admin' && allMembers.length === membersData.length && allMembers[0]?.name === membersData[0]?.name && (
               <button 
                 onClick={handleSyncData}
                 disabled={isSyncing}
@@ -805,7 +928,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             )}
             {currentUser.role !== 'visitor' ? (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-sky-500/10 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-400">
-                <span>👤 {currentUser.name} ({currentUser.role === 'admin' ? 'Admin' : 'Líder'})</span>
+                <span>👤 {currentUser.name} ({currentUser.role === 'admin' ? 'Admin' : currentUser.role === 'pastor' ? 'Pastor' : 'Líder'})</span>
                 <button onClick={handleLogout} className="text-slate-400 hover:text-white ml-2 text-xs underline cursor-pointer">Sair</button>
               </div>
             ) : (
@@ -835,17 +958,17 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             {currentUser.role === 'admin' && (
               <>
                 <button 
-                  onClick={() => setIsDeptLeadersModalOpen(true)}
+                  onClick={() => setIsAccessManagementModalOpen(true)}
                   className={cn(
                     "p-2 border rounded-lg text-xs font-bold transition-colors md:px-4 md:py-2 md:flex md:gap-2 md:items-center cursor-pointer",
                     isDarkMode 
                       ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20" 
                       : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
                   )}
-                  title="Configurar Líderes de Departamento"
+                  title="Gerenciar contas e departamentos"
                 >
                   <Star className="w-4 h-4 md:w-3.5 md:h-3.5 text-amber-500" />
-                  <span className="hidden md:inline">Configurar Líderes</span>
+                  <span className="hidden md:inline">Gerenciar Acessos</span>
                 </button>
 
                 <button 
@@ -868,7 +991,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           {/* Stats Section */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
             {[
-              { label: 'Membros Ativos', value: filteredMembers.length, sub: 'Filtro atual', color: 'sky', action: () => resetFilters() },
+              { label: currentUser.role === 'leader' ? 'Membros do Departamento' : 'Membros Ativos', value: filteredMembers.length, sub: currentUser.role === 'leader' ? 'Área atribuída' : 'Filtro atual', color: 'sky', action: () => resetFilters() },
               { label: 'Liderança', value: filteredMembers.filter(m => m.isLeadership).length, sub: 'Corpo diretivo', color: 'indigo', action: () => setLeadershipFilter(prev => prev === 'leadership' ? 'all' : 'leadership') },
               { label: 'Congregação', value: filteredMembers.filter(m => !m.isLeadership).length, sub: 'Membros gerais', color: 'teal', action: () => setLeadershipFilter(prev => prev === 'congregation' ? 'all' : 'congregation') },
               { label: 'Aniversariantes', value: filteredMembers.filter(m => m.month === MONTHS[new Date().getMonth()]).length, sub: 'Este mês', color: 'sky', action: () => {
@@ -895,7 +1018,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 onClick={() => toggleSection('depts')}
                 className={cn("w-full flex items-center justify-between text-xs font-bold uppercase tracking-widest mb-4 md:mb-6 border-b pb-2", isDarkMode ? "text-white border-white/5" : "text-slate-800 border-slate-100")}
               >
-                <span>Departamentos</span>
+                <span>{currentUser.role === 'leader' ? 'Meu(s) departamento(s)' : 'Departamentos'}</span>
                 <div className="lg:hidden">
                   {expandedSections.depts ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </div>
@@ -934,6 +1057,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                           dataKey="value" 
                           radius={[0, 4, 4, 0]}
                           onClick={(data: any) => {
+                            if (currentUser.role === 'visitor') return;
                             const name = data?.name;
                             if (name && typeof name === 'string') {
                               setSelectedDepts((prev: string[]) => 
@@ -946,7 +1070,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               }
                             }
                           }}
-                          className="cursor-pointer transition-all duration-300"
+                          className={cn("transition-all duration-300", currentUser.role === 'visitor' ? "cursor-default" : "cursor-pointer")}
                         >
                           {deptData.map((entry, index) => (
                             <Cell 
@@ -1165,7 +1289,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             </div>
           </div>
 
-          {/* Members Table */}
+          {/* Diretório público: nome e aniversário; campos administrativos somente após login. */}
           <div className={cn("card-sleek !p-0 overflow-hidden !shadow-none", !isDarkMode && "bg-white border-slate-200")}>
             <div className={cn("p-6 border-b flex flex-col md:flex-row md:items-center justify-between gap-4", isDarkMode ? "border-white/5" : "border-slate-100")}>
               <h3 className={cn("text-lg font-bold", isDarkMode ? "text-white" : "text-slate-800")}>Relatório Digital - Mensageiros da Fé</h3>
@@ -1214,8 +1338,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                           <div className="flex items-center gap-3">
                             <div className={cn(
                               "w-8 h-8 rounded-lg border flex items-center justify-center font-bold text-[10px] transition-all",
-                              member.isLeadership 
-                                ? "bg-amber-500/10 border-amber-500/20 text-amber-500" 
+                              currentUser.role !== 'visitor' && member.isLeadership
+                                ? "bg-amber-500/10 border-amber-500/20 text-amber-500"
                                 : isDarkMode ? "bg-slate-800 border-white/5 text-slate-500" : "bg-slate-100 border-slate-200 text-slate-400"
                             )}>
                               {member.name.charAt(0).toUpperCase()}
@@ -1225,7 +1349,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                             </span>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        {currentUser.role !== 'visitor' && <td className="px-6 py-4">
                           {member.isLeadership ? (
                             <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase border bg-amber-500/10 text-amber-500 border-amber-500/20">
                               Liderança
@@ -1238,8 +1362,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               Congregação
                             </span>
                           )}
-                        </td>
-                        <td className="px-6 py-4">
+                        </td>}
+                        {currentUser.role !== 'visitor' && <td className="px-6 py-4">
                           <div className="flex flex-wrap gap-1">
                             {member.departments.map((dept, idx) => (
                               <span key={idx} className={cn(
@@ -1250,7 +1374,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               </span>
                             ))}
                           </div>
-                        </td>
+                        </td>}
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-between gap-1.5">
                             <div className="flex items-center gap-1.5">
@@ -1259,20 +1383,22 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                                 {member.birthday}
                               </span>
                             </div>
-                            <div className={cn(
+                            {currentUser.role !== 'visitor' && <div className={cn(
                               "flex items-center gap-1 transition-opacity",
                               "lg:opacity-0 lg:group-hover:opacity-100 opacity-100"
                             )}>
-                              <button 
-                                onClick={() => checkPermissionAndExecute(() => {
-                                  setEditingMember(member);
-                                  setIsMemberModalOpen(true);
-                                })}
-                                className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-sky-500/10 text-sky-400" : "hover:bg-slate-200 text-sky-600")}
-                                title="Editar"
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </button>
+                              {currentUser.role !== 'leader' && (
+                                <button 
+                                  onClick={() => checkPermissionAndExecute(() => {
+                                    setEditingMember(member);
+                                    setIsMemberModalOpen(true);
+                                  })}
+                                  className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-sky-500/10 text-sky-400" : "hover:bg-slate-200 text-sky-600")}
+                                  title="Editar"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                </button>
+                              )}
                               {currentUser.role === 'admin' && (
                                 <button 
                                   onClick={() => handleDeleteMember(member.id)}
@@ -1282,7 +1408,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                                   <Trash2 className="w-3 h-3" />
                                 </button>
                               )}
-                            </div>
+                            </div>}
                           </div>
                         </td>
                       </motion.tr>
@@ -1324,7 +1450,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       <AnimatePresence>
         {isReportModalOpen && (
           <ReportModal 
-            members={allMembers}
+            members={visibleMembersForCurrentUser}
             isDarkMode={isDarkMode}
             onClose={() => setIsReportModalOpen(false)} 
           />
@@ -1357,20 +1483,21 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 </div>
                 <h3 className="text-xl font-bold">Acesso Restrito</h3>
                 <p className="text-slate-400 text-xs mt-1">
-                  Faça login como Administrador ou Líder de Departamento para acessar <strong>+Novo Membro</strong> e <strong>Relatórios</strong>.
+                  Entre com o e-mail e a senha cadastrados pelo administrador. As opções disponíveis dependem do seu perfil de acesso.
                 </p>
               </div>
 
               <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1 mb-1 block">
-                    Usuário (Primeiro Nome ou 'admin')
+                    Nome de usuário
                   </label>
                   <input
                     type="text"
+                    autoComplete="username"
                     value={loginUsername}
                     onChange={(e) => setLoginUsername(e.target.value)}
-                    placeholder="Ex: Samuel, Karoline ou admin"
+                    placeholder="Ex.: joao.silva"
                     required
                     className={cn(
                       "w-full px-4 py-3 rounded-xl border text-sm outline-none focus:ring-2",
@@ -1384,7 +1511,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
                       Senha de Acesso
                     </label>
-                    <span className="text-[10px] text-sky-400 italic">Dica (Admin): "Quem é o autor da Salvação?"</span>
+                    <span className="text-[10px] text-slate-400 italic">A senha é definida pelo administrador</span>
                   </div>
                   <input
                     type="password"
@@ -1417,14 +1544,21 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         )}
       </AnimatePresence>
 
-      {/* Department Leaders Modal */}
+      {isAccessManagementModalOpen && (
+        <AdminAccessModal
+          isDarkMode={isDarkMode}
+          onClose={() => setIsAccessManagementModalOpen(false)}
+        />
+      )}
+
+      {/* Legacy Department Leaders Modal */}
       <AnimatePresence>
         {isDeptLeadersModalOpen && (
           <DeptLeadersModal 
             isOpen={isDeptLeadersModalOpen}
             onClose={() => setIsDeptLeadersModalOpen(false)}
             departmentLeaders={departmentLeaders}
-            onSave={setDepartmentLeaders}
+            onSave={handleSaveDepartmentLeaders}
             isDarkMode={isDarkMode}
             allMembers={allMembers}
           />
