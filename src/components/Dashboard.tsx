@@ -1402,7 +1402,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMode, allMembers }: { isOpen: boolean, onClose: () => void, departmentLeaders: Record<string, string>, onSave: (l: Record<string, string>) => void, isDarkMode: boolean, allMembers: Member[] }) {
   const [leaders, setLeaders] = useState<Record<string, string>>(departmentLeaders);
   const [activeDept, setActiveDept] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setLeaders(departmentLeaders);
@@ -1410,18 +1410,28 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
 
   if (!isOpen) return null;
 
-  const handleChange = (dept: string, val: string) => {
-    setLeaders(prev => ({ ...prev, [dept]: val }));
+  const handleSearchChange = (dept: string, val: string) => {
+    setSearchTerms(prev => ({ ...prev, [dept]: val }));
     setActiveDept(dept);
-    setSearchTerm(val);
   };
 
-  const handleSelectMember = (dept: string, memberName: string) => {
-    const current = leaders[dept] || '';
-    const newVal = current ? `${current}, ${memberName}` : memberName;
-    setLeaders(prev => ({ ...prev, [dept]: newVal }));
+  const handleAddLeader = (dept: string, memberName: string) => {
+    const currentStr = leaders[dept] || '';
+    const currentList = currentStr ? currentStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+    if (!currentList.includes(memberName)) {
+      currentList.push(memberName);
+    }
+    const newListStr = currentList.join(', ');
+    setLeaders(prev => ({ ...prev, [dept]: newListStr }));
+    setSearchTerms(prev => ({ ...prev, [dept]: '' }));
     setActiveDept(null);
-    setSearchTerm('');
+  };
+
+  const handleRemoveLeader = (dept: string, memberName: string) => {
+    const currentStr = leaders[dept] || '';
+    const currentList = currentStr ? currentStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const newList = currentList.filter(n => n !== memberName);
+    setLeaders(prev => ({ ...prev, [dept]: newList.join(', ') }));
   };
 
   const handleSave = () => {
@@ -1457,32 +1467,66 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
           </button>
         </div>
 
-        <div className="p-8 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
+        <div className="p-8 space-y-5 max-h-[65vh] overflow-y-auto custom-scrollbar">
           <p className={cn("text-xs uppercase tracking-wider font-semibold", isDarkMode ? "text-slate-400" : "text-slate-500")}>
-            Defina o líder responsável por cada departamento (digite para buscar membros):
+            Adicione ou remova os líderes responsáveis por cada departamento da congregação:
           </p>
           
-          <div className="space-y-3">
+          <div className="space-y-4">
             {DEPARTMENTS.map(dept => {
-              const query = (activeDept === dept ? searchTerm : '').toLowerCase();
-              const suggestions = query.length > 0 ? allMembers.filter(m => m.name.toLowerCase().includes(query)) : [];
+              const currentStr = leaders[dept] || '';
+              const currentList = currentStr ? currentStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+              const query = (searchTerms[dept] || '').toLowerCase();
+              const suggestions = query.length > 0 ? allMembers.filter(m => m.name.toLowerCase().includes(query) && !currentList.includes(m.name)) : [];
 
               return (
-                <div key={dept} className="flex flex-col md:flex-row md:items-center gap-2 relative">
-                  <label className={cn("w-48 text-xs font-bold uppercase tracking-wider", isDarkMode ? "text-sky-400" : "text-sky-600")}>
-                    {dept}
-                  </label>
-                  <div className="flex-1 relative">
+                <div key={dept} className={cn("p-4 rounded-xl border space-y-2.5", isDarkMode ? "bg-slate-800/40 border-white/5" : "bg-slate-50 border-slate-200")}>
+                  <div className="flex items-center justify-between">
+                    <label className={cn("text-xs font-bold uppercase tracking-wider", isDarkMode ? "text-sky-400" : "text-sky-600")}>
+                      {dept}
+                    </label>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">{currentList.length} líder(es)</span>
+                  </div>
+
+                  {/* Selected Leader Badges (Pills with 'x') */}
+                  {currentList.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {currentList.map(name => (
+                        <span 
+                          key={name}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-sm transition-all",
+                            isDarkMode ? "bg-sky-500/10 border-sky-500/30 text-sky-300" : "bg-sky-50 border-sky-200 text-sky-700"
+                          )}
+                        >
+                          <span>{name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveLeader(dept, name)}
+                            className={cn(
+                              "w-4 h-4 rounded-full flex items-center justify-center transition-colors cursor-pointer",
+                              isDarkMode ? "hover:bg-red-500/20 text-red-400" : "hover:bg-red-100 text-red-600"
+                            )}
+                            title="Remover líder"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Search / Add Input */}
+                  <div className="relative">
                     <input 
                       type="text"
-                      value={leaders[dept] || ''}
-                      onChange={(e) => handleChange(dept, e.target.value)}
-                      onFocus={() => { setActiveDept(dept); setSearchTerm(''); }}
-                      onBlur={() => setTimeout(() => setActiveDept(null), 200)}
-                      placeholder="Digite o nome do líder..."
+                      value={searchTerms[dept] || ''}
+                      onChange={(e) => handleSearchChange(dept, e.target.value)}
+                      onFocus={() => setActiveDept(dept)}
+                      placeholder="Digite o nome do irmão(ã) para adicionar..."
                       className={cn(
                         "w-full border rounded-xl py-2 px-3 text-xs font-medium focus:outline-none focus:ring-2",
-                        isDarkMode ? "bg-slate-800/80 border-white/5 text-white focus:ring-sky-500/20" : "bg-slate-50 border-slate-200 text-slate-800 focus:ring-sky-500/10"
+                        isDarkMode ? "bg-slate-900 border-white/5 text-white focus:ring-sky-500/20" : "bg-white border-slate-200 text-slate-800 focus:ring-sky-500/10"
                       )}
                     />
                     {activeDept === dept && suggestions.length > 0 && (
@@ -1490,12 +1534,12 @@ function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMo
                         "absolute z-50 left-0 right-0 mt-1 max-h-40 overflow-y-auto rounded-xl border shadow-xl p-1",
                         isDarkMode ? "bg-[#0f172a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
                       )}>
-                        <div className="text-[9px] uppercase font-bold text-slate-400 px-2 py-1">Clique para selecionar:</div>
+                        <div className="text-[9px] uppercase font-bold text-slate-400 px-2 py-1">Clique para adicionar:</div>
                         {suggestions.map(m => (
                           <button
                             key={m.id}
                             type="button"
-                            onMouseDown={() => handleSelectMember(dept, m.name)}
+                            onMouseDown={() => handleAddLeader(dept, m.name)}
                             className={cn(
                               "w-full text-left px-3 py-2 text-xs rounded-lg transition-colors flex items-center justify-between cursor-pointer",
                               isDarkMode ? "hover:bg-sky-500/20 text-sky-300" : "hover:bg-sky-50 text-sky-700"
