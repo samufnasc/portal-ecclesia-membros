@@ -800,6 +800,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <p className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-widest truncate", isDarkMode ? "text-sky-500" : "text-sky-600")}>
                 {churchName}
               </p>
+              {currentUser.role === 'leader' && (
+                <p className={cn("text-[9px] font-semibold truncate max-w-[240px]", isDarkMode ? "text-amber-400" : "text-amber-700")}>
+                  Área de atuação: {leaderDepartments.length > 0 ? leaderDepartments.join(' • ') : 'Nenhum departamento vinculado'}
+                </p>
+              )}
             </div>
           </div>
           
@@ -908,7 +913,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           {/* Stats Section */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
             {[
-              { label: 'Membros Ativos', value: filteredMembers.length, sub: 'Filtro atual', color: 'sky', action: () => resetFilters() },
+              { label: currentUser.role === 'leader' ? 'Membros do Departamento' : 'Membros Ativos', value: filteredMembers.length, sub: currentUser.role === 'leader' ? 'Área atribuída' : 'Filtro atual', color: 'sky', action: () => resetFilters() },
               { label: 'Liderança', value: filteredMembers.filter(m => m.isLeadership).length, sub: 'Corpo diretivo', color: 'indigo', action: () => setLeadershipFilter(prev => prev === 'leadership' ? 'all' : 'leadership') },
               { label: 'Congregação', value: filteredMembers.filter(m => !m.isLeadership).length, sub: 'Membros gerais', color: 'teal', action: () => setLeadershipFilter(prev => prev === 'congregation' ? 'all' : 'congregation') },
               { label: 'Aniversariantes', value: filteredMembers.filter(m => m.month === MONTHS[new Date().getMonth()]).length, sub: 'Este mês', color: 'sky', action: () => {
@@ -935,7 +940,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 onClick={() => toggleSection('depts')}
                 className={cn("w-full flex items-center justify-between text-xs font-bold uppercase tracking-widest mb-4 md:mb-6 border-b pb-2", isDarkMode ? "text-white border-white/5" : "text-slate-800 border-slate-100")}
               >
-                <span>Departamentos</span>
+                <span>{currentUser.role === 'leader' ? 'Meu(s) departamento(s)' : 'Departamentos'}</span>
                 <div className="lg:hidden">
                   {expandedSections.depts ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </div>
