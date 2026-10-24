@@ -37,6 +37,24 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isDeptLeadersModalOpen, setIsDeptLeadersModalOpen] = useState(false);
+  
+  // Department Leaders configuration state (Admin configurable)
+  const [departmentLeaders, setDepartmentLeaders] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('portal_dept_leaders');
+    return saved ? JSON.parse(saved) : {
+      'EBD': 'Karoline Poubel / Vitória Caroline',
+      'Obreiros': 'Samuel Nascimento',
+      'Secretaria': 'Marlene / Missionária Lia',
+      'Círculo de Oração': 'Francisca Melo / Evelyn',
+      'Sonoplastia': 'Lila / Wesley / Lucas Israel',
+      'Missão/Assistência Social': 'Rosália',
+      'Mídia': 'Virgínia / Mariana',
+      'Mocidade': 'Victor Emanoel',
+      'Liderança': 'Pr. Sirrenuk',
+      'Família': 'Pr. Edgar melo'
+    };
+  });
   
   // Collapsible sections state (mobile) - Start collapsed on mobile
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -778,17 +796,36 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <Printer className="w-4 h-4 md:w-3.5 md:h-3.5" />
               <span className="hidden md:inline">Relatórios</span>
             </button>
-            <button 
-              onClick={() => checkPermissionAndExecute(() => {
-                setEditingMember(null);
-                setIsMemberModalOpen(true);
-              })}
-              className="p-2 bg-sky-500 rounded-lg text-xs font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors flex items-center md:px-4 md:py-2 md:gap-2 cursor-pointer"
-              title="Novo Membro"
-            >
-              <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" />
-              <span className="hidden md:inline">Novo Membro</span>
-            </button>
+
+            {currentUser.role === 'admin' && (
+              <>
+                <button 
+                  onClick={() => setIsDeptLeadersModalOpen(true)}
+                  className={cn(
+                    "p-2 border rounded-lg text-xs font-bold transition-colors md:px-4 md:py-2 md:flex md:gap-2 md:items-center cursor-pointer",
+                    isDarkMode 
+                      ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20" 
+                      : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                  )}
+                  title="Configurar Líderes de Departamento"
+                >
+                  <Star className="w-4 h-4 md:w-3.5 md:h-3.5 text-amber-500" />
+                  <span className="hidden md:inline">Configurar Líderes</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setEditingMember(null);
+                    setIsMemberModalOpen(true);
+                  }}
+                  className="p-2 bg-sky-500 rounded-lg text-xs font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors flex items-center md:px-4 md:py-2 md:gap-2 cursor-pointer"
+                  title="Novo Membro"
+                >
+                  <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                  <span className="hidden md:inline">Novo Membro</span>
+                </button>
+              </>
+            )}
           </div>
         </header>
 
@@ -1201,13 +1238,15 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                               >
                                 <Edit2 className="w-3 h-3" />
                               </button>
-                              <button 
-                                onClick={() => checkPermissionAndExecute(() => handleDeleteMember(member.id))}
-                                className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-red-500/10 text-red-500" : "hover:bg-red-50 text-red-600")}
-                                title="Excluir"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                              {currentUser.role === 'admin' && (
+                                <button 
+                                  onClick={() => handleDeleteMember(member.id)}
+                                  className={cn("p-1.5 rounded transition-colors", isDarkMode ? "hover:bg-red-500/10 text-red-500" : "hover:bg-red-50 text-red-600")}
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -1342,7 +1381,114 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Department Leaders Modal */}
+      <AnimatePresence>
+        {isDeptLeadersModalOpen && (
+          <DeptLeadersModal 
+            isOpen={isDeptLeadersModalOpen}
+            onClose={() => setIsDeptLeadersModalOpen(false)}
+            departmentLeaders={departmentLeaders}
+            onSave={setDepartmentLeaders}
+            isDarkMode={isDarkMode}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function DeptLeadersModal({ isOpen, onClose, departmentLeaders, onSave, isDarkMode }: { isOpen: boolean, onClose: () => void, departmentLeaders: Record<string, string>, onSave: (l: Record<string, string>) => void, isDarkMode: boolean }) {
+  const [leaders, setLeaders] = useState<Record<string, string>>(departmentLeaders);
+
+  useEffect(() => {
+    setLeaders(departmentLeaders);
+  }, [departmentLeaders]);
+
+  if (!isOpen) return null;
+
+  const handleChange = (dept: string, val: string) => {
+    setLeaders(prev => ({ ...prev, [dept]: val }));
+  };
+
+  const handleSave = () => {
+    onSave(leaders);
+    localStorage.setItem('portal_dept_leaders', JSON.stringify(leaders));
+    alert('Líderes de departamento atualizados com sucesso!');
+    onClose();
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+    >
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.9, opacity: 0, y: 20 }}
+        className={cn(
+          "w-full max-w-2xl border rounded-2xl shadow-2xl overflow-hidden transition-colors duration-500",
+          isDarkMode ? "bg-[#1e293b] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
+        )}
+      >
+        <div className={cn(
+          "p-6 border-b flex items-center justify-between",
+          isDarkMode ? "border-white/5 bg-white/5" : "border-slate-100 bg-slate-50"
+        )}>
+          <h3 className="text-xl font-bold">Configurar Líderes de Departamento</h3>
+          <button onClick={onClose} className={cn("p-2 rounded-lg transition-colors", isDarkMode ? "hover:bg-white/5" : "hover:bg-slate-200")}>
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="p-8 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
+          <p className={cn("text-xs uppercase tracking-wider font-semibold", isDarkMode ? "text-slate-400" : "text-slate-500")}>
+            Defina o líder responsável por cada departamento da congregação:
+          </p>
+          
+          <div className="space-y-3">
+            {DEPARTMENTS.map(dept => (
+              <div key={dept} className="flex flex-col md:flex-row md:items-center gap-2">
+                <label className={cn("w-48 text-xs font-bold uppercase tracking-wider", isDarkMode ? "text-sky-400" : "text-sky-600")}>
+                  {dept}
+                </label>
+                <input 
+                  type="text"
+                  value={leaders[dept] || ''}
+                  onChange={(e) => handleChange(dept, e.target.value)}
+                  placeholder="Nome do líder responsável"
+                  className={cn(
+                    "flex-1 border rounded-xl py-2 px-3 text-xs font-medium focus:outline-none focus:ring-2",
+                    isDarkMode ? "bg-slate-800/80 border-white/5 text-white focus:ring-sky-500/20" : "bg-slate-50 border-slate-200 text-slate-800 focus:ring-sky-500/10"
+                  )}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-3 pt-6 border-t border-white/5">
+            <button 
+              onClick={onClose}
+              className={cn(
+                "flex-1 px-6 py-3 border rounded-xl text-sm font-bold transition-colors",
+                isDarkMode ? "bg-slate-800 border-white/5 text-slate-400 hover:bg-slate-700" : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200"
+              )}
+            >
+              Cancelar
+            </button>
+            <button 
+              onClick={handleSave}
+              className="flex-1 px-6 py-3 bg-sky-500 rounded-xl text-sm font-bold text-white shadow-lg shadow-sky-500/10 hover:bg-sky-400 transition-colors"
+            >
+              Salvar Alterações
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

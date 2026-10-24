@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000" flood-opacity="0.15" />
+    </filter>
+    <clipPath id="circleClip">
+      <circle cx="100" cy="100" r="84" />
+    </clipPath>
+  </defs>
+
+  <!-- Fundo branco com sombra -->
+  <circle cx="100" cy="100" r="92" fill="#ffffff" filter="url(#shadow)" />
+
+  <!-- Imagem da logo do sistema recortada circularmente -->
+  <image xlink:href="logo_sistema.png" x="16" y="16" width="168" height="168" preserveAspectRatio="xMidYMid slice" clip-path="url(#circleClip)" />
+
+  <!-- Moldura Circular Azul de Destaque -->
+  <circle cx="100" cy="100" r="88" fill="none" stroke="url(#blueGrad)" stroke-width="6" />
+</svg>

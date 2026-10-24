@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Fundo externo transparente -->
+  <defs>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000" flood-opacity="0.15" />
+    </filter>
+  </defs>
+
+  <!-- Círculo de Fundo Branco com Sombra -->
+  <circle cx="100" cy="100" r="90" fill="#ffffff" filter="url(#shadow)" />
+
+  <!-- Borda Circular Azul Destacada -->
+  <circle cx="100" cy="100" r="88" fill="none" stroke="url(#blueGrad)" stroke-width="8" />
+  <circle cx="100" cy="100" r="80" fill="none" stroke="#e0f2fe" stroke-width="2" />
+
+  <!-- Elemento Central: Cruz e Monograma MF -->
+  <!-- Cruz sutil ao fundo -->
+  <path d="M100 45 L100 135 M65 75 L135 75" stroke="#bae6fd" stroke-width="6" stroke-linecap="round" />
+
+  <!-- Texto / Monograma MF -->
+  <text x="100" y="112" font-family="Arial, sans-serif" font-size="52" font-weight="900" fill="#0284c7" text-anchor="middle" letter-spacing="2">MF</text>
+
+  <!-- Legenda Circular Opcional -->
+  <text x="100" y="150" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#64748b" text-anchor="middle" letter-spacing="3">MENSAGEIROS DA FÉ</text>
+</svg>
