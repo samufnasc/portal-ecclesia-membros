@@ -20,6 +20,22 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
+// Normalização usada apenas para aplicar o escopo visual do líder.
+// A autorização real precisa ser reforçada pelo Supabase RLS antes da publicação.
+function normalizeAccessName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase()
+    .replace(/^(pr\\.?|pra\\.?|pastor|pastora|missionaria|missionario|diacono|diaconisa|obreiro|obreira|irmao|irma)\\s+/i, '')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function parseConfiguredLeaderNames(value: string): string[] {
+  return value.split(/[,/;]+/).map(name => normalizeAccessName(name)).filter(Boolean);
+}
+
 export default function Dashboard({ onLogout }: DashboardProps) {
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -382,9 +398,30 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   };
 
+  // Departamentos associados ao líder atual, conforme configuração do administrador.
+  // Esta filtragem é de interface; não substitui autenticação nem políticas RLS no banco.
+  const leaderDepartments = useMemo(() => {
+    if (currentUser.role !== 'leader') return [];
+    const currentName = normalizeAccessName(currentUser.name);
+    return Object.entries(departmentLeaders)
+      .filter(([, names]) => parseConfiguredLeaderNames(names).includes(currentName))
+      .map(([department]) => department);
+  }, [currentUser, departmentLeaders]);
+
+  // A lista operacional do líder contém somente membros vinculados aos departamentos atribuídos.
+  // Os cartões/estatísticas públicas continuam calculados sobre allMembers.
+  const visibleMembersForCurrentUser = useMemo(() => {
+    if (currentUser.role !== 'leader') return allMembers;
+    if (leaderDepartments.length === 0) return [];
+    const allowedDepartments = new Set(leaderDepartments.map(normalizeAccessName));
+    return allMembers.filter(member =>
+      member.departments.some(department => allowedDepartments.has(normalizeAccessName(department)))
+    );
+  }, [allMembers, currentUser.role, leaderDepartments]);
+
   // Filtered members list - SORTED BY BIRTHDAY
   const filteredMembers = useMemo(() => {
-    const filtered = allMembers.filter(m => {
+    const filtered = visibleMembersForCurrentUser.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
       const matchesMonth = !selectedMonth || m.month === selectedMonth;
@@ -401,7 +438,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       if (monthIndexA !== monthIndexB) return monthIndexA - monthIndexB;
       return a.day - b.day;
     });
-  }, [allMembers, searchTerm, selectedDepts, selectedMonth, leadershipFilter]);
+  }, [visibleMembersForCurrentUser, searchTerm, selectedDepts, selectedMonth, leadershipFilter]);
 
   // Data processing for charts - CROSS-FILTERING (Charts shouldn't filter themselves)
   const deptData = useMemo(() => {
@@ -1320,7 +1357,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       <AnimatePresence>
         {isReportModalOpen && (
           <ReportModal 
-            members={allMembers}
+            members={visibleMembersForCurrentUser}
             isDarkMode={isDarkMode}
             onClose={() => setIsReportModalOpen(false)} 
           />
