@@ -237,7 +237,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       if (currentUser.role === 'visitor') {
         const publicResult = await supabase
           .from('public_member_directory')
-          .select('id, name, birthday, month, day')
+          .select('id, name, birthday, month, day, is_leadership')
           .order('name');
         members = publicResult.data;
         mError = publicResult.error;
@@ -1266,7 +1266,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             </div>
           </div>
 
-          {/* Members Table */}
+          {/* Full member directory is restricted to authenticated profiles. */}
+          {currentUser.role !== 'visitor' && (
           <div className={cn("card-sleek !p-0 overflow-hidden !shadow-none", !isDarkMode && "bg-white border-slate-200")}>
             <div className={cn("p-6 border-b flex flex-col md:flex-row md:items-center justify-between gap-4", isDarkMode ? "border-white/5" : "border-slate-100")}>
               <h3 className={cn("text-lg font-bold", isDarkMode ? "text-white" : "text-slate-800")}>Relatório Digital - Mensageiros da Fé</h3>
@@ -1395,6 +1396,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               </table>
             </div>
           </div>
+          )}
 
           {/* Footer Signature - Creative & Discreet */}
           <footer className="pt-12 pb-8 opacity-20 hover:opacity-60 transition-opacity duration-700">
