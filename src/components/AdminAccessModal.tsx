@@ -14,11 +14,14 @@ type AccessUser = {
   departments: string[];
 };
 
+function usernameFromName(value: string) {
+  return value.trim().toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]+/g, ".").replace(/^\\.+|\\.+$/g, "");
+}
+
 export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: boolean; onClose: () => void }) {
   const [users, setUsers] = useState<AccessUser[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AccessRole>("leader");
   const [departments, setDepartments] = useState<string[]>([]);
@@ -69,7 +72,6 @@ export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: 
   function clearForm() {
     setSelectedId("");
     setDisplayName("");
-    setEmail("");
     setPassword("");
     setRole("leader");
     setDepartments([]);
@@ -79,7 +81,6 @@ export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: 
   function selectUser(user: AccessUser) {
     setSelectedId(user.user_id);
     setDisplayName(user.display_name);
-    setEmail(user.email ?? "");
     setPassword("");
     setRole(user.role);
     setDepartments(user.departments);
@@ -189,8 +190,8 @@ export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: 
             <h3 className="mb-4 text-xs font-bold uppercase tracking-wider">{selectedUser ? "Editar conta" : "Criar nova conta"}</h3>
             <form onSubmit={handleSubmit} className="space-y-3">
               <label className="block space-y-1.5"><span className={cn("text-xs font-semibold", mutedClass)}>Nome de exibição</span><input className={fieldClass} required value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Nome do líder ou pastor" /></label>
-              <label className="block space-y-1.5"><span className={cn("text-xs font-semibold", mutedClass)}>E-mail de login</span><input className={fieldClass} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pessoa@exemplo.com" /></label>
-              <label className="block space-y-1.5"><span className={cn("text-xs font-semibold", mutedClass)}>{selectedUser ? "Nova senha (opcional)" : "Senha inicial"}</span><input className={fieldClass} type="password" minLength={10} required={!selectedUser} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo de 10 caracteres" autoComplete="new-password" /></label>
+              <label className="block space-y-1.5"><span className={cn("text-xs font-semibold", mutedClass)}>Nome de usuário para entrar</span><input className={fieldClass} type="text" value={usernameFromName(displayName)} readOnly placeholder="Gerado a partir do nome" /></label>
+              <label className="block space-y-1.5"><span className={cn("text-xs font-semibold", mutedClass)}>{selectedUser ? "Nova senha (opcional)" : "Senha inicial"}</span><input className={fieldClass} type="password" minLength={7} required={!selectedUser} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo de 7 caracteres" autoComplete="new-password" /></label>
               <label className="block space-y-1.5"><span className={cn("text-xs font-semibold", mutedClass)}>Perfil de acesso</span><select className={fieldClass} value={role} onChange={(e) => setRole(e.target.value as AccessRole)}><option value="leader">Líder de departamento</option><option value="pastor">Pastor congregacional</option><option value="admin">Administrador</option></select></label>
               {role === "leader" && (
                 <div className="space-y-2">
@@ -213,7 +214,7 @@ export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: 
                 </button>
                 {selectedUser && <button type="button" onClick={clearForm} className={cn("rounded-xl border px-4 py-3 text-sm font-semibold", isDarkMode ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-600")}>Cancelar edição</button>}
               </div>
-              <p className={cn("text-[10px] leading-relaxed", mutedClass)}>As senhas não são exibidas nem armazenadas nesta tela. O Supabase Auth valida as credenciais; o administrador pode definir ou redefinir a senha.</p>
+              <p className={cn("text-[10px] leading-relaxed", mutedClass)}>As senhas não são exibidas nem armazenadas nesta tela. O nome de usuário é gerado a partir do nome informado. O administrador define e pode redefinir a senha.</p>
             </form>
           </section>
         </div>
