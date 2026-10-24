@@ -443,8 +443,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   // Data processing for charts - CROSS-FILTERING (Charts shouldn't filter themselves)
   const deptData = useMemo(() => {
     const counts: Record<string, number> = {};
+    const allowedDepartments = new Set(leaderDepartments.map(normalizeAccessName));
+    // Líderes veem somente seus departamentos; os demais perfis mantêm a visão geral.
+    const departmentsForChart = currentUser.role === 'leader'
+      ? DEPARTMENTS.filter(dept => allowedDepartments.has(normalizeAccessName(dept)))
+      : DEPARTMENTS;
     // When computing chart data, we ignore its own filter to keep UI stable (Power BI behavior)
-    const dataForDepts = allMembers.filter(m => {
+    const dataForDepts = visibleMembersForCurrentUser.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesMonth = !selectedMonth || m.month === selectedMonth;
       const matchesLeadership = leadershipFilter === 'all' || 
@@ -454,18 +459,20 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
     dataForDepts.forEach(m => {
       m.departments.forEach(dept => {
-        counts[dept] = (counts[dept] || 0) + 1;
+        if (currentUser.role !== 'leader' || allowedDepartments.has(normalizeAccessName(dept))) {
+          counts[dept] = (counts[dept] || 0) + 1;
+        }
       });
     });
-    return DEPARTMENTS.map(dept => ({
+    return departmentsForChart.map(dept => ({
       name: dept,
       value: counts[dept] || 0
     })).filter(d => d.value > 0);
-  }, [allMembers, searchTerm, selectedMonth, leadershipFilter]);
+  }, [visibleMembersForCurrentUser, currentUser.role, leaderDepartments, searchTerm, selectedMonth, leadershipFilter]);
 
   const monthData = useMemo(() => {
     const counts: Record<string, number> = {};
-    const dataForMonths = allMembers.filter(m => {
+    const dataForMonths = visibleMembersForCurrentUser.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
       const matchesLeadership = leadershipFilter === 'all' || 
@@ -480,10 +487,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       name: month,
       value: counts[month] || 0
     }));
-  }, [allMembers, searchTerm, selectedDepts, leadershipFilter]);
+  }, [visibleMembersForCurrentUser, searchTerm, selectedDepts, leadershipFilter]);
 
   const leadershipStats = useMemo(() => {
-    const dataForLeadership = allMembers.filter(m => {
+    const dataForLeadership = visibleMembersForCurrentUser.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesDept = selectedDepts.length === 0 || m.departments.some(d => selectedDepts.includes(d));
       const matchesMonth = !selectedMonth || m.month === selectedMonth;
@@ -496,7 +503,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       { name: 'Liderança', value: leaders },
       { name: 'Congregação', value: congregation }
     ].filter(s => s.value > 0);
-  }, [allMembers, searchTerm, selectedDepts, selectedMonth]);
+  }, [visibleMembersForCurrentUser, searchTerm, selectedDepts, selectedMonth]);
 
   // Next birthdays logic (Current month remaining, or Next month)
   const upcomingBirthdays = useMemo(() => {
@@ -506,7 +513,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     const currentDay = today.getDate();
 
     // Check current month first
-    const currentMonthRemaining = [...allMembers]
+    const currentMonthRemaining = [...visibleMembersForCurrentUser]
       .filter(m => m.month === currentMonthName && m.day >= currentDay)
       .sort((a, b) => a.day - b.day);
 
@@ -514,13 +521,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       // If none in current month, show next month
       const nextMonthIndex = (currentMonthIndex + 1) % 12;
       const nextMonthName = MONTHS[nextMonthIndex];
-      return [...allMembers]
+      return [...visibleMembersForCurrentUser]
         .filter(m => m.month === nextMonthName)
         .sort((a, b) => a.day - b.day);
     }
 
     return currentMonthRemaining;
-  }, [allMembers]);
+  }, [visibleMembersForCurrentUser]);
 
   const resetFilters = () => {
     setSelectedDepts([]);
