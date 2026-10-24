@@ -15,7 +15,7 @@ type AccessUser = {
 };
 
 function usernameFromName(value: string) {
-  return value.trim().toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]+/g, ".").replace(/^\\.+|\\.+$/g, "");
+  return value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "");
 }
 
 export default function AdminAccessModal({ isDarkMode, onClose }: { isDarkMode: boolean; onClose: () => void }) {
