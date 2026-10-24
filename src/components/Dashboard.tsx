@@ -212,16 +212,18 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         }
       }
       
-      if (members && members.length > 0) {
+      if (members) {
         const mappedData = members.map(m => ({
           ...m,
-          isLeadership: m.is_leadership,
-          membershipType: m.membership_type
+          departments: Array.isArray(m.departments) ? m.departments : [],
+          isLeadership: Boolean(m.is_leadership ?? m.isLeadership),
+          membershipType: m.membership_type || m.membershipType || 'Batizado'
         }));
         setAllMembers(mappedData);
         setIsOffline(false);
       } else {
-        setAllMembers(membersData);
+        // Use demo data only when the database schema is unavailable, not when it is genuinely empty.
+        setAllMembers(mError?.code === 'PGRST205' ? membersData : []);
         setIsOffline(mError?.code === 'PGRST205');
       }
     } catch (err) {
@@ -279,14 +281,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       setEditingMember(null);
     } catch (err) {
       console.error('Error saving member:', err);
-      alert('Erro ao salvar no banco de dados. Salvando localmente para esta sessão.');
-      // Fallback update
-      if (member.id) {
-        setAllMembers((prev: Member[]) => prev.map((m: Member) => m.id === member.id ? member : m));
-      } else {
-        setAllMembers((prev: Member[]) => [...prev, { ...member, id: Math.random().toString(36).substr(2, 9) }]);
-      }
-      setIsMemberModalOpen(false);
+      alert('Não foi possível salvar o membro no banco de dados. Nenhuma alteração foi confirmada. Verifique a conexão e as permissões e tente novamente.');
+      // Keep the form open so the user can correct the issue or retry; do not imply that the database was updated.
     }
   };
 
@@ -307,7 +303,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       await fetchData();
     } catch (err) {
       console.error('Error deleting member:', err);
-      setAllMembers((prev: Member[]) => prev.filter((m: Member) => m.id !== id));
+      alert('Não foi possível excluir o membro do banco de dados. O cadastro foi mantido; tente novamente após verificar a conexão e as permissões.');
     }
   };
 
@@ -1424,7 +1420,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             isOpen={isDeptLeadersModalOpen}
             onClose={() => setIsDeptLeadersModalOpen(false)}
             departmentLeaders={departmentLeaders}
-            onSave={setDepartmentLeaders}
+            onSave={handleSaveDepartmentLeaders}
             isDarkMode={isDarkMode}
             allMembers={allMembers}
           />
