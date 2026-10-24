@@ -15,6 +15,7 @@ import { membersData, MONTHS, DEPARTMENTS } from '../data/members';
 import { Member } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import AdminAccessModal from './AdminAccessModal';
 
 interface DashboardProps {
   onLogout: () => void;
@@ -54,6 +55,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isDeptLeadersModalOpen, setIsDeptLeadersModalOpen] = useState(false);
+  const [isAccessManagementModalOpen, setIsAccessManagementModalOpen] = useState(false);
+  const [authenticatedDepartments, setAuthenticatedDepartments] = useState<string[]>([]);
   
   // Department Leaders configuration state (Admin configurable)
   const [departmentLeaders, setDepartmentLeaders] = useState<Record<string, string>>(() => {
@@ -87,62 +90,91 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [isSyncing, setIsSyncing] = useState(false);
 
   // User Session & Permissions
-  const [currentUser, setCurrentUser] = useState<{ name: string; role: 'admin' | 'leader' | 'visitor' }>(() => {
-    const saved = localStorage.getItem('portal_user_session');
-    return saved ? JSON.parse(saved) : { name: 'Visitante', role: 'visitor' };
-  });
+  const [currentUser, setCurrentUser] = useState<{ name: string; role: 'admin' | 'pastor' | 'leader' | 'visitor' }>({ name: 'Visitante', role: 'visitor' });
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError('');
-    const u = loginUsername.trim().toLowerCase();
-    const p = loginPassword.trim();
-
-    if (u === 'admin' && p === 'Jesussalva') {
-      const user = { name: 'Administrador', role: 'admin' as const };
-      setCurrentUser(user);
-      localStorage.setItem('portal_user_session', JSON.stringify(user));
-      setIsLoginModalOpen(false);
-      setLoginUsername('');
-      setLoginPassword('');
-      return;
+  const applyAuthenticatedProfile = async (userId: string, fallbackName: string) => {
+    if (!supabase) throw new Error('Supabase não está configurado neste ambiente.');
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('display_name, role, is_active')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (profileError || !profile || profile.is_active === false) {
+      await supabase.auth.signOut();
+      throw new Error('Esta conta não está autorizada no Portal Ecclesia. Solicite ao administrador que confira seu acesso.');
     }
-
-    const foundLeader = allMembers.find(m => {
-      if (!m.isLeadership) return false;
-      const nameLower = m.name.toLowerCase();
-      const cleanName = nameLower.replace(/^(pr\.?|pra\.?|pastor|pastora|missionária|missionario|diácono|diaconisa|obreiro|obreira|irmão|irmã)\s+/i, '');
-      const parts = cleanName.split(/\s+/);
-      const matchFirst = parts[0] === u;
-      const matchFull = nameLower.includes(u);
-      return matchFirst || matchFull;
-    });
-
-    if (foundLeader && p === '1234567') {
-      const user = { name: foundLeader.name, role: 'leader' as const };
-      setCurrentUser(user);
-      localStorage.setItem('portal_user_session', JSON.stringify(user));
-      setIsLoginModalOpen(false);
-      setLoginUsername('');
-      setLoginPassword('');
-      return;
+    if (!['admin', 'pastor', 'leader'].includes(profile.role)) {
+      await supabase.auth.signOut();
+      throw new Error('Perfil de acesso inválido.');
     }
-
-    setLoginError('Credenciais inválidas. Para líderes, use seu primeiro nome e senha (1 a 7).');
+    const { data: links, error: linksError } = await supabase
+      .from('department_leaders')
+      .select('department')
+      .eq('leader_user_id', userId);
+    if (linksError) throw new Error('Não foi possível carregar os departamentos vinculados.');
+    setAuthenticatedDepartments((links ?? []).map((link: any) => link.department));
+    setCurrentUser({ name: profile.display_name || fallbackName, role: profile.role });
   };
 
-  const handleLogout = () => {
-    const visitor = { name: 'Visitante', role: 'visitor' as const };
-    setCurrentUser(visitor);
-    localStorage.removeItem('portal_user_session');
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (!supabase) {
+      setLoginError('Supabase não está configurado neste ambiente.');
+      return;
+    }
+    const email = loginUsername.trim().toLowerCase();
+    const password = loginPassword;
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.user) {
+      setLoginError('Não foi possível entrar. Confira seu e-mail e senha.');
+      return;
+    }
+    try {
+      await applyAuthenticatedProfile(data.user.id, email);
+      setIsLoginModalOpen(false);
+      setLoginUsername('');
+      setLoginPassword('');
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Não foi possível validar o perfil.');
+    }
+  };
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void supabase.auth.getSession().then(async ({ data }) => {
+      if (!active || !data.session?.user) return;
+      try {
+        await applyAuthenticatedProfile(data.session.user.id, data.session.user.email || 'Usuário');
+      } catch (err) {
+        console.error('Não foi possível restaurar a sessão do Portal Ecclesia:', err);
+      }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setCurrentUser({ name: 'Visitante', role: 'visitor' });
+        setAuthenticatedDepartments([]);
+      }
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    if (supabase) await supabase.auth.signOut();
+    setCurrentUser({ name: 'Visitante', role: 'visitor' });
+    setAuthenticatedDepartments([]);
   };
 
   const checkPermissionAndExecute = (action: () => void) => {
-    if (currentUser.role === 'admin' || currentUser.role === 'leader') {
+    if (currentUser.role === 'admin' || currentUser.role === 'pastor' || currentUser.role === 'leader') {
       action();
     } else {
       setIsLoginModalOpen(true);
@@ -402,11 +434,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   // Esta filtragem é de interface; não substitui autenticação nem políticas RLS no banco.
   const leaderDepartments = useMemo(() => {
     if (currentUser.role !== 'leader') return [];
-    const currentName = normalizeAccessName(currentUser.name);
-    return Object.entries(departmentLeaders)
-      .filter(([, names]) => parseConfiguredLeaderNames(names).includes(currentName))
-      .map(([department]) => department);
-  }, [currentUser, departmentLeaders]);
+    return authenticatedDepartments;
+  }, [currentUser.role, authenticatedDepartments]);
 
   // A lista operacional do líder contém somente membros vinculados aos departamentos atribuídos.
   // Os cartões/estatísticas públicas continuam calculados sobre allMembers.
@@ -850,7 +879,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             )}
             {currentUser.role !== 'visitor' ? (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-sky-500/10 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-400">
-                <span>👤 {currentUser.name} ({currentUser.role === 'admin' ? 'Admin' : 'Líder'})</span>
+                <span>👤 {currentUser.name} ({currentUser.role === 'admin' ? 'Admin' : currentUser.role === 'pastor' ? 'Pastor' : 'Líder'})</span>
                 <button onClick={handleLogout} className="text-slate-400 hover:text-white ml-2 text-xs underline cursor-pointer">Sair</button>
               </div>
             ) : (
@@ -880,17 +909,17 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             {currentUser.role === 'admin' && (
               <>
                 <button 
-                  onClick={() => setIsDeptLeadersModalOpen(true)}
+                  onClick={() => setIsAccessManagementModalOpen(true)}
                   className={cn(
                     "p-2 border rounded-lg text-xs font-bold transition-colors md:px-4 md:py-2 md:flex md:gap-2 md:items-center cursor-pointer",
                     isDarkMode 
                       ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20" 
                       : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
                   )}
-                  title="Configurar Líderes de Departamento"
+                  title="Gerenciar contas e departamentos"
                 >
                   <Star className="w-4 h-4 md:w-3.5 md:h-3.5 text-amber-500" />
-                  <span className="hidden md:inline">Configurar Líderes</span>
+                  <span className="hidden md:inline">Gerenciar Acessos</span>
                 </button>
 
                 <button 
@@ -1411,13 +1440,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1 mb-1 block">
-                    Usuário (Primeiro Nome ou 'admin')
+                    E-mail de acesso
                   </label>
                   <input
                     type="text"
                     value={loginUsername}
                     onChange={(e) => setLoginUsername(e.target.value)}
-                    placeholder="Ex: Samuel, Karoline ou admin"
+                    placeholder="seu.email@exemplo.com"
                     required
                     className={cn(
                       "w-full px-4 py-3 rounded-xl border text-sm outline-none focus:ring-2",
@@ -1431,7 +1460,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
                       Senha de Acesso
                     </label>
-                    <span className="text-[10px] text-sky-400 italic">Dica (Admin): "Quem é o autor da Salvação?"</span>
+                    <span className="text-[10px] text-slate-400 italic">A senha é definida pelo administrador</span>
                   </div>
                   <input
                     type="password"
@@ -1464,7 +1493,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         )}
       </AnimatePresence>
 
-      {/* Department Leaders Modal */}
+      {isAccessManagementModalOpen && (
+        <AdminAccessModal
+          isDarkMode={isDarkMode}
+          onClose={() => setIsAccessManagementModalOpen(false)}
+        />
+      )}
+
+      {/* Legacy Department Leaders Modal */}
       <AnimatePresence>
         {isDeptLeadersModalOpen && (
           <DeptLeadersModal 
