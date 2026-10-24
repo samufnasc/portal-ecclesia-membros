@@ -93,7 +93,9 @@ Deno.serve(async (req) => {
     const { error: profileInsertError } = await adminClient.from("user_profiles").insert({
       user_id: userId,
       display_name: displayName,
+      email,
       role: body.role,
+      is_active: true,
     });
 
     if (profileInsertError) {
@@ -115,7 +117,7 @@ Deno.serve(async (req) => {
     return json({ userId, displayName, role: body.role, departments });
   }
 
-  if (action === "update" || action === "reset_password" || action === "deactivate") {
+  if (action === "update" || action === "reset_password" || action === "deactivate" || action === "activate") {
     const userId = body.userId?.trim();
     if (!userId) return json({ error: "Identificador do usuário obrigatório." }, 400);
 
@@ -123,8 +125,23 @@ Deno.serve(async (req) => {
       if (userId === authData.user.id) return json({ error: "O administrador não pode desativar a própria conta." }, 400);
       const { error } = await adminClient.auth.admin.updateUserById(userId, { ban_duration: "876000h" });
       if (error) return json({ error: error.message }, 400);
-      await adminClient.from("department_leaders").delete().eq("leader_user_id", userId);
+      const { error: profileUpdateError } = await adminClient
+        .from("user_profiles")
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq("user_id", userId);
+      if (profileUpdateError) return json({ error: "Conta bloqueada, mas o perfil não pôde ser atualizado." }, 500);
       return json({ userId, deactivated: true });
+    }
+
+    if (action === "activate") {
+      const { error } = await adminClient.auth.admin.updateUserById(userId, { ban_duration: "none" });
+      if (error) return json({ error: error.message }, 400);
+      const { error: profileUpdateError } = await adminClient
+        .from("user_profiles")
+        .update({ is_active: true, updated_at: new Date().toISOString() })
+        .eq("user_id", userId);
+      if (profileUpdateError) return json({ error: "Conta reativada, mas o perfil não pôde ser atualizado." }, 500);
+      return json({ userId, activated: true });
     }
 
     if (action === "reset_password") {
@@ -136,6 +153,7 @@ Deno.serve(async (req) => {
     }
 
     const displayName = body.displayName?.trim();
+    const email = body.email?.trim().toLowerCase();
     const role = body.role;
     if (!displayName || !validRoles.includes(role ?? "")) {
       return json({ error: "Informe nome e perfil válidos." }, 400);
@@ -146,9 +164,13 @@ Deno.serve(async (req) => {
 
     const { error: profileUpdateError } = await adminClient
       .from("user_profiles")
-      .update({ display_name: displayName, role, updated_at: new Date().toISOString() })
+      .update({ display_name: displayName, ...(email ? { email } : {}), role, is_active: true, updated_at: new Date().toISOString() })
       .eq("user_id", userId);
     if (profileUpdateError) return json({ error: profileUpdateError.message }, 400);
+    if (email) {
+      const { error: authEmailError } = await adminClient.auth.admin.updateUserById(userId, { email, email_confirm: true });
+      if (authEmailError) return json({ error: "Perfil atualizado, mas o e-mail de autenticação não foi atualizado." }, 500);
+    }
 
     const { error: deleteDepartmentsError } = await adminClient
       .from("department_leaders")
