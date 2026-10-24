@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
     if (action === "reset_password") {
       const password = body.password ?? "";
       if (password.length < 10) return json({ error: "A nova senha precisa ter pelo menos 10 caracteres." }, 400);
-      const { error } = await adminClient.auth.admin.updateUserById(userId, { password, ban_duration: "none" });
+      const { error } = await adminClient.auth.admin.updateUserById(userId, { password });
       if (error) return json({ error: error.message }, 400);
       return json({ userId, passwordUpdated: true });
     }
