@@ -1462,7 +1462,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 </div>
                 <h3 className="text-xl font-bold">Acesso Restrito</h3>
                 <p className="text-slate-400 text-xs mt-1">
-                  Faça login como Administrador ou Líder de Departamento para acessar <strong>+Novo Membro</strong> e <strong>Relatórios</strong>.
+                  Entre com o e-mail e a senha cadastrados pelo administrador. As opções disponíveis dependem do seu perfil de acesso.
                 </p>
               </div>
 
